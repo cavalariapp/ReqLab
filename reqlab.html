@@ -42,7 +42,7 @@
   // ----------------------------------------------------------------- state
   var state = {
     screen: 'visao', profile: 'orientado', step: 2,
-    dataFiltro: 'Todos', novaLinhaOpen: false,
+    dataFiltro: 'Todos', tempoFiltro: 'Todos', novaLinhaOpen: false,
     loginOpen: false, loginMsg: ''
   };
 
@@ -252,6 +252,7 @@
 
   // --------------------------------------------------------- screen: análises
   function analises() {
+    if (model && d.real) return analisesReal();
     var stat = d.statRows.map(function (s) {
       return '<tr style="border-top:1px solid #f0f3f6; background:' + s.rowbg + ';"><td style="padding:10px 16px; font-family:\'IBM Plex Sans\',sans-serif; font-weight:600;">' + s.g + '</td><td style="padding:10px 12px;">' + s.n + '</td><td style="padding:10px 12px;">' + s.mean + '</td><td style="padding:10px 12px;">' + s.sd + '</td><td style="padding:10px 12px;"><span style="' + s.cvs + '">' + s.cv + '</span></td><td style="padding:10px 16px;"><span style="display:inline-flex; align-items:center; gap:6px; font:500 11.5px \'IBM Plex Sans\',sans-serif; color:' + s.stc + ';"><span style="width:7px; height:7px; border-radius:50%; background:' + s.dot + ';"></span>' + s.st + '</span></td></tr>';
     }).join('');
@@ -284,6 +285,7 @@
 
   // ------------------------------------------------------------ screen: dados
   function dados() {
+    if (model && d.real) return dadosReal();
     var f = state.dataFiltro || 'Todos';
     var displayed = (f === 'Todos') ? d.allDataRows : d.allDataRows.filter(function (r) { return r.grupo === f; });
     var rows = displayed.map(function (r) {
@@ -333,7 +335,7 @@
     }
 
     return '<div>' +
-      '<div style="display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:16px;"><div><h2 style="margin:0 0 3px; font-size:20px; font-weight:700;">Gestão de dados</h2><div style="font-size:12.5px; color:#6b7585; font-family:\'IBM Plex Mono\',monospace;">Coleta ' + (d.curDia || 'D6') + ' · ' + displayed.length + ' registros · formatação condicional ativa</div></div><div style="display:flex; gap:8px;"><button style="border:1px solid #dde2e8; background:#fff; color:#2b3340; font:500 12.5px \'IBM Plex Sans\',sans-serif; padding:7px 12px; border-radius:7px; cursor:pointer;">Importar CSV</button><button style="border:1px solid #dde2e8; background:#fff; color:#2b3340; font:500 12.5px \'IBM Plex Sans\',sans-serif; padding:7px 12px; border-radius:7px; cursor:pointer;">Exportar</button><button data-act="novaLinha" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 12.5px \'IBM Plex Sans\',sans-serif; padding:7px 14px; border-radius:7px; cursor:pointer;">+ Nova linha</button></div></div>' +
+      '<div style="display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:16px;"><div><h2 style="margin:0 0 3px; font-size:20px; font-weight:700;">Gestão de dados</h2><div style="font-size:12.5px; color:#6b7585; font-family:\'IBM Plex Mono\',monospace;">Coleta ' + (d.curDia || 'D6') + ' · ' + displayed.length + ' registros · formatação condicional ativa</div></div><div style="display:flex; gap:8px;"><button style="border:1px solid #dde2e8; background:#fff; color:#2b3340; font:500 12.5px \'IBM Plex Sans\',sans-serif; padding:7px 12px; border-radius:7px; cursor:pointer;" data-act="importarCSV">Importar CSV</button><input type="file" id="reqlab-csv" accept=".csv,text/csv" style="display:none"><button style="border:1px solid #dde2e8; background:#fff; color:#2b3340; font:500 12.5px \'IBM Plex Sans\',sans-serif; padding:7px 12px; border-radius:7px; cursor:pointer;" data-act="exportarCSV">Exportar</button><button data-act="novaLinha" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 12.5px \'IBM Plex Sans\',sans-serif; padding:7px 14px; border-radius:7px; cursor:pointer;">+ Nova linha</button></div></div>' +
       nl +
       '<div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">' +
         '<div style="display:flex; align-items:center; gap:8px; flex:1; max-width:280px; padding:8px 11px; background:#fff; border:1px solid #dde2e8; border-radius:7px;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#9aa3b0" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><line x1="10.5" y1="10.5" x2="14" y2="14" stroke-linecap="round"/></svg><span style="font-size:12.5px; color:#9aa3b0;">Buscar animal…</span></div>' +
@@ -711,16 +713,117 @@
       });
       if (worst) dd.anomalia = '<strong>Anomalia detectada:</strong> ' + worst.animal + (worst.grupo ? ' (' + worst.grupo + ')' : '') + ' com progesterona <strong>' + fmt(worst.val, 1) + ' ng/mL</strong> — fora da faixa esperada. Verifique a coleta ou registre observação clínica.';
     }
+
+    // ===== estrutura dinâmica (qualquer variável) p/ Dados e Análises reais
+    var rvars = model.variaveis.slice().sort(function (a, b) { return (a.ordem || 0) - (b.ordem || 0); });
+    var rtempos = diaList.slice();
+    var curTempo = (state.tempoFiltro && rtempos.indexOf(state.tempoFiltro) > -1) ? state.tempoFiltro : (rtempos[rtempos.length - 1] || null);
+    var gById = {}; model.grupos.forEach(function (g) { gById[g.id] = g; });
+
+    var rrows = model.coletas.map(function (c) {
+      var anr = byId(model.animais, c.animal_id);
+      var gr = anr ? gById[anr.grupo_id] : null;
+      var vals = valByColeta[c.id] || {};
+      var cells = rvars.map(function (v) {
+        var x = vals[v.id];
+        if (!x) return { disp: '—' };
+        if (v.tipo === 'numerico' && x.valor_num != null) {
+          var num = Number(x.valor_num), tone = v.cond_format ? classify(num, v) : null;
+          return { disp: fmt(num, 1), bg: tone ? tone.background : '', fg: tone ? tone.color : '', tone: tone ? toneName(tone) : '' };
+        }
+        if (v.tipo === 'booleano' && x.valor_bool != null) return { disp: x.valor_bool ? 'Sim' : 'Não' };
+        if (x.valor_texto != null && x.valor_texto !== '') return { disp: x.valor_texto };
+        if (x.valor_num != null) return { disp: fmt(Number(x.valor_num), 1) };
+        if (x.valor_bool != null) return { disp: x.valor_bool ? 'Sim' : 'Não' };
+        return { disp: '—' };
+      });
+      return { animal: anr ? anr.identificador : '—', grupo: gr ? gr.nome : '—', grupoCor: gr ? gr.cor : '#94a3b8', tempo: c.dia, cells: cells };
+    }).sort(function (a, b) { return a.animal.localeCompare(b.animal) || String(a.tempo).localeCompare(String(b.tempo), undefined, { numeric: true }); });
+
+    function valsOf(v, grupoId, tempo) {
+      var arr = [];
+      model.coletas.forEach(function (c) {
+        if (tempo && c.dia !== tempo) return;
+        var an = byId(model.animais, c.animal_id); if (!an) return;
+        if (grupoId && an.grupo_id !== grupoId) return;
+        var x = (valByColeta[c.id] || {})[v.id];
+        if (x && x.valor_num != null) arr.push(Number(x.valor_num));
+      });
+      return arr;
+    }
+    function boolOf(v, grupoId, tempo) {
+      var t = 0, n = 0;
+      model.coletas.forEach(function (c) {
+        if (tempo && c.dia !== tempo) return;
+        var an = byId(model.animais, c.animal_id); if (!an) return;
+        if (grupoId && an.grupo_id !== grupoId) return;
+        var x = (valByColeta[c.id] || {})[v.id];
+        if (x && x.valor_bool != null) { n++; if (x.valor_bool) t++; }
+      });
+      return { t: t, n: n };
+    }
+
+    var numVars = rvars.filter(function (v) { return v.tipo === 'numerico'; });
+    var boolVars = rvars.filter(function (v) { return v.tipo === 'booleano'; });
+
+    var descr = numVars.map(function (v) {
+      var groups = model.grupos.map(function (g) {
+        var arr = valsOf(v, g.id, curTempo);
+        var m = mean(arr), s = sd(arr), cv = m ? (s / m * 100) : 0, normal = cv <= 12;
+        return { nome: g.nome, n: arr.length, mean: arr.length ? fmt(m, 1) : '—', sd: arr.length > 1 ? fmt(s, 1) : '—', cv: arr.length > 1 ? fmt(cv, 1) + '%' : '—', cvs: pill(normal ? ok : warn), st: arr.length < 2 ? 'n insuficiente' : (normal ? 'Normal' : 'Alta variabilidade'), stc: arr.length < 2 ? '#8a93a0' : (normal ? '#177a52' : '#9a6a12'), dot: arr.length < 2 ? '#cbd2da' : (normal ? '#1f9d6b' : '#d99a18'), rowbg: (arr.length >= 2 && !normal) ? '#fffdf6' : 'transparent', _cv: cv, _m: m, _arr: arr };
+      });
+      var withN = groups.filter(function (x) { return x._arr.length > 1; });
+      var an = anova(withN.map(function (x) { return x._arr; }));
+      return { nome: v.nome, unidade: v.unidade, groups: groups, anovaP: an.p < 0.001 ? 'p<0,001' : 'p=' + fmt(an.p, 3), sig: (an.df1 > 0 && an.p < 0.05), comparavel: withN.length >= 2 };
+    });
+
+    var rates = boolVars.map(function (v) {
+      var bars = model.grupos.map(function (g) { var r = boolOf(v, g.id, curTempo); return { label: g.nome, val: r.n ? Math.round(r.t / r.n * 100) : 0, color: g.cor, n: r.n }; });
+      return { nome: v.nome, bars: bars };
+    });
+
+    // evolução temporal da 1ª variável numérica (média por grupo × tempo)
+    var primary = numVars[0] || null, evo = null;
+    if (primary && rtempos.length >= 2) {
+      var series = model.grupos.map(function (g) {
+        return { nome: g.nome, color: g.cor, pts: rtempos.map(function (tp) { var a = valsOf(primary, g.id, tp); return { tempo: tp, m: a.length ? mean(a) : null }; }) };
+      });
+      var allM = []; series.forEach(function (s) { s.pts.forEach(function (p) { if (p.m != null) allM.push(p.m); }); });
+      if (allM.length) {
+        var ymin = Math.min.apply(null, allM), ymax = Math.max.apply(null, allM); if (ymin === ymax) { ymin -= 1; ymax += 1; }
+        evo = { nome: primary.nome, unidade: primary.unidade, tempos: rtempos, series: series, ymin: ymin, ymax: ymax };
+      }
+    }
+
+    // insight em linguagem simples
+    var insights = [];
+    descr.forEach(function (dv) {
+      if (!dv.sig) return;
+      var withData = dv.groups.filter(function (x) { return x._arr.length > 0; });
+      if (withData.length < 2) return;
+      var hi = withData[0], lo = withData[0];
+      withData.forEach(function (x) { if (x._m > hi._m) hi = x; if (x._m < lo._m) lo = x; });
+      insights.push('Em <strong>' + dv.nome + '</strong>, o grupo <strong>' + hi.nome + '</strong> teve a maior média (' + fmt(hi._m, 1) + (dv.unidade ? ' ' + dv.unidade : '') + ') e o <strong>' + lo.nome + '</strong> a menor (' + fmt(lo._m, 1) + ') — diferença <strong>estatisticamente significativa</strong> (' + dv.anovaP + ').');
+    });
+    var insightHTML = insights.length
+      ? insights.join('<br><br>') + '<br><br><span style="color:#3a4a66;">Significativo (p&lt;0,05) quer dizer que essa diferença entre grupos provavelmente não é por acaso. As demais variáveis ainda não mostram diferença clara — pode faltar n (mais animais) ou o efeito ser pequeno.</span>'
+      : (numVars.length ? 'Ainda não há diferença estatisticamente significativa entre os grupos. É comum no começo: registre mais tempos/animais e o teste fica mais sensível.' : 'Importe variáveis numéricas (ex.: peso, hormônio) para ver as comparações estatísticas entre grupos.');
+
+    dd.real = {
+      titulo: model.pesquisa.titulo, vars: rvars, grupos: model.grupos, tempos: rtempos, curTempo: curTempo,
+      rows: rrows, nAnimais: model.animais.length, nColetas: model.coletas.length, nGrupos: model.grupos.length,
+      descr: descr, rates: rates, evo: evo, insightHTML: insightHTML
+    };
   }
 
   // ------------------------------------------------------------ data layer
   async function loadModel() {
     if (!sb) return;
     try {
-      var pq = await sb.from('reqlab_pesquisas').select('*').eq('is_demo', true).order('created_at').limit(1);
+      var pq = await sb.from('reqlab_pesquisas').select('*').order('created_at', { ascending: false }).limit(1);
       if (pq.error) throw pq.error;
       var pesquisa = pq.data && pq.data[0];
-      if (!pesquisa) { console.warn('ReqLab: pesquisa demo não encontrada — rode sql/001_schema.sql.'); return; }
+      if (!pesquisa) { model = null; render(); return; }
       var pid = pesquisa.id;
       var res = await Promise.all([
         sb.from('reqlab_grupos').select('*').eq('pesquisa_id', pid).order('ordem'),
@@ -781,6 +884,309 @@
   }
   async function doLogout() { if (sb) { try { await sb.auth.signOut(); } catch (e) {} } session = null; render(); }
 
+  // =============================================== importação / exportação CSV
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]; }); }
+  function slugify(s) {
+    return (s || '').toString().toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/\([^)]*\)/g, '')
+      .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'var';
+  }
+  function nomeUnidade(h) {
+    var m = (h || '').match(/^(.*?)\s*\(([^)]*)\)\s*$/);
+    return m ? { nome: m[1].trim(), unidade: m[2].trim() } : { nome: (h || '').trim(), unidade: null };
+  }
+  function numBR(s) {
+    if (s == null) return null;
+    var t = String(s).trim(); if (t === '') return null; t = t.replace(/\s/g, '');
+    if (t.indexOf(',') > -1 && t.indexOf('.') > -1) t = t.replace(/\./g, '').replace(',', '.');
+    else if (t.indexOf(',') > -1) t = t.replace(',', '.');
+    var n = Number(t); return isNaN(n) ? null : n;
+  }
+  function isBoolWord(s) { return /^(sim|s|não|nao|n|true|false|verdadeiro|falso|yes|no)$/i.test(String(s).trim()); }
+  function asBool(s) { return /^(sim|s|true|verdadeiro|yes)$/i.test(String(s).trim()); }
+
+  function parseCSV(text) {
+    text = text.replace(/^﻿/, '');
+    var firstLine = text.split(/\r?\n/)[0] || '';
+    var delim = (firstLine.split(';').length > firstLine.split(',').length) ? ';' : ',';
+    var rows = [], cur = [], field = '', i, c, inq = false;
+    for (i = 0; i < text.length; i++) {
+      c = text[i];
+      if (inq) {
+        if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inq = false; }
+        else field += c;
+      } else if (c === '"') inq = true;
+      else if (c === delim) { cur.push(field); field = ''; }
+      else if (c === '\n') { cur.push(field); rows.push(cur); cur = []; field = ''; }
+      else if (c === '\r') { /* ignora */ }
+      else field += c;
+    }
+    if (field !== '' || cur.length) { cur.push(field); rows.push(cur); }
+    return rows.filter(function (r) { return r.some(function (x) { return String(x).trim() !== ''; }); });
+  }
+
+  async function importarCSV(file) {
+    if (!sb) { alert('Backend não configurado.'); return; }
+    if (!session) { state.loginOpen = true; state.loginMsg = ''; render(); return; }
+    var rows;
+    try { rows = parseCSV(await file.text()); } catch (e) { alert('Não consegui ler o arquivo.'); return; }
+    if (rows.length < 2) { alert('A planilha está vazia ou sem linhas de dados.'); return; }
+    var head = rows[0].map(function (h) { return String(h).trim(); });
+    var low = head.map(function (h) { return h.toLowerCase(); });
+    var iG = low.indexOf('grupo'), iI = low.indexOf('individuo'); if (iI < 0) iI = low.indexOf('indivíduo');
+    var iT = low.indexOf('tempo');
+    if (iG < 0 || iI < 0 || iT < 0) { alert('A planilha precisa ter as colunas: grupo, individuo, tempo (e depois as variáveis).'); return; }
+
+    var varCols = [];
+    head.forEach(function (h, idx) {
+      if (idx === iG || idx === iI || idx === iT || !h) return;
+      var nu = nomeUnidade(h);
+      varCols.push({ idx: idx, nome: nu.nome, unidade: nu.unidade, chave: slugify(h) });
+    });
+    if (!varCols.length) { alert('Nenhuma coluna de variável encontrada depois de grupo/individuo/tempo.'); return; }
+    var data = rows.slice(1);
+    varCols.forEach(function (v) {
+      var vals = data.map(function (r) { return (r[v.idx] || '').trim(); }).filter(function (x) { return x !== ''; });
+      var allNum = vals.length && vals.every(function (x) { return numBR(x) != null; });
+      var allBool = vals.length && vals.every(isBoolWord);
+      v.tipo = allNum ? 'numerico' : (allBool ? 'booleano' : 'categorico');
+    });
+
+    var titulo = window.prompt('Nome do experimento (para esta planilha):', file.name.replace(/\.csv$/i, '')) ;
+    if (titulo === null) return;
+    titulo = titulo.trim() || 'Experimento importado';
+
+    try {
+      var pIns = await sb.from('reqlab_pesquisas').insert({ owner: session.user.id, titulo: titulo, is_demo: false }).select().single();
+      if (pIns.error) throw pIns.error;
+      var pid = pIns.data.id;
+
+      var gNomes = []; data.forEach(function (r) { var g = (r[iG] || '').trim() || 'Sem grupo'; if (gNomes.indexOf(g) < 0) gNomes.push(g); });
+      var cores = ['#94a3b8', '#2f63d6', '#1f9d6b', '#d99a18', '#9b59b6', '#e67e22', '#16a085', '#c0392b'];
+      var gIns = await sb.from('reqlab_grupos').insert(gNomes.map(function (n, k) { return { pesquisa_id: pid, nome: n, cor: cores[k % cores.length], ordem: k }; })).select();
+      if (gIns.error) throw gIns.error;
+      var gMap = {}; gIns.data.forEach(function (g) { gMap[g.nome] = g.id; });
+
+      var vIns = await sb.from('reqlab_variaveis').insert(varCols.map(function (v, k) {
+        return { pesquisa_id: pid, chave: v.chave, nome: v.nome, tipo: v.tipo, unidade: v.unidade, cond_format: false, ordem: k };
+      })).select();
+      if (vIns.error) throw vIns.error;
+      var vMap = {}; vIns.data.forEach(function (v) { vMap[v.chave] = v.id; });
+
+      var anSeen = {}, anList = [];
+      data.forEach(function (r) {
+        var ind = (r[iI] || '').trim(); if (!ind || anSeen[ind]) return;
+        anSeen[ind] = true; anList.push({ ind: ind, grupo: (r[iG] || '').trim() || 'Sem grupo' });
+      });
+      var aIns = await sb.from('reqlab_animais').insert(anList.map(function (a, k) {
+        return { pesquisa_id: pid, grupo_id: gMap[a.grupo] || null, identificador: a.ind, ordem: k };
+      })).select();
+      if (aIns.error) throw aIns.error;
+      var aMap = {}; aIns.data.forEach(function (a) { aMap[a.identificador] = a.id; });
+
+      var colSeen = {}, coletaRows = [];
+      data.forEach(function (r) {
+        var aid = aMap[(r[iI] || '').trim()]; if (!aid) return;
+        var dia = (r[iT] || '').trim() || 'T0', key = aid + '|' + dia;
+        if (!colSeen[key]) { colSeen[key] = true; coletaRows.push({ pesquisa_id: pid, animal_id: aid, dia: dia }); }
+      });
+      var cIns = await sb.from('reqlab_coletas').insert(coletaRows).select();
+      if (cIns.error) throw cIns.error;
+      var colKey = {}; cIns.data.forEach(function (col) { colKey[col.animal_id + '|' + col.dia] = col.id; });
+
+      var valores = [];
+      data.forEach(function (r) {
+        var aid = aMap[(r[iI] || '').trim()]; if (!aid) return;
+        var cid = colKey[aid + '|' + ((r[iT] || '').trim() || 'T0')]; if (!cid) return;
+        varCols.forEach(function (v) {
+          var raw = (r[v.idx] || '').trim(); if (raw === '') return;
+          var vid = vMap[v.chave]; if (!vid) return;
+          var row = { coleta_id: cid, variavel_id: vid };
+          if (v.tipo === 'numerico') { var n = numBR(raw); if (n == null) return; row.valor_num = n; }
+          else if (v.tipo === 'booleano') row.valor_bool = asBool(raw);
+          else row.valor_texto = raw;
+          valores.push(row);
+        });
+      });
+      for (var b = 0; b < valores.length; b += 500) {
+        var vi = await sb.from('reqlab_valores').upsert(valores.slice(b, b + 500), { onConflict: 'coleta_id,variavel_id' });
+        if (vi.error) throw vi.error;
+      }
+      alert('Importado com sucesso:\n' + anList.length + ' indivíduos · ' + coletaRows.length + ' registros · ' + varCols.length + ' variáveis.');
+      state.screen = 'dados'; state.dataFiltro = 'Todos'; state.tempoFiltro = 'Todos';
+      await loadModel();
+    } catch (e) {
+      alert('Erro ao importar: ' + ((e && e.message) || e));
+      console.error('ReqLab importarCSV:', e);
+    }
+  }
+
+  function exportarCSV() {
+    var R = d.real; if (!R) { alert('Nada para exportar ainda.'); return; }
+    var head = ['grupo', 'individuo', 'tempo'].concat(R.vars.map(function (v) { return v.nome + (v.unidade ? ' (' + v.unidade + ')' : ''); }));
+    function cell(s) { var t = String(s == null ? '' : s); return /[",\n;]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; }
+    var lines = [head.map(cell).join(',')];
+    R.rows.forEach(function (r) {
+      var cols = [r.grupo, r.animal, r.tempo].concat(r.cells.map(function (c) { return c.disp === '—' ? '' : String(c.disp).replace(',', '.'); }));
+      lines.push(cols.map(cell).join(','));
+    });
+    var blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = (R.titulo || 'reqlab').replace(/[^\w\-]+/g, '_') + '.csv'; a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1500);
+  }
+
+  async function salvarLinhaReal() {
+    if (!sb || !model) return;
+    if (!session) { state.loginOpen = true; state.loginMsg = ''; render(); return; }
+    var R = d.real;
+    var animalId = (document.getElementById('nl-animal') || {}).value;
+    if (!animalId) { alert('Selecione um indivíduo.'); return; }
+    var tempo = ((document.getElementById('nl-tempo') || {}).value || '').trim() || (R.curTempo || 'T0');
+    try {
+      var cIns = await sb.from('reqlab_coletas').insert({ pesquisa_id: model.pesquisa.id, animal_id: animalId, dia: tempo }).select().single();
+      if (cIns.error) throw cIns.error;
+      var cid = cIns.data.id, valores = [];
+      R.vars.forEach(function (v) {
+        var el = document.getElementById('nl-v-' + v.id); if (!el) return;
+        var raw = (el.value || '').trim(); if (raw === '') return;
+        var row = { coleta_id: cid, variavel_id: v.id };
+        if (v.tipo === 'numerico') { var n = numBR(raw); if (n == null) return; row.valor_num = n; }
+        else if (v.tipo === 'booleano') row.valor_bool = (raw === 'sim');
+        else row.valor_texto = raw;
+        valores.push(row);
+      });
+      if (valores.length) { var vi = await sb.from('reqlab_valores').upsert(valores, { onConflict: 'coleta_id,variavel_id' }); if (vi.error) throw vi.error; }
+      state.novaLinhaOpen = false; await loadModel();
+    } catch (e) { alert('Erro ao salvar: ' + ((e && e.message) || e)); }
+  }
+
+  // ------------------------------------------------ tela Dados (dados reais)
+  function dadosReal() {
+    var R = d.real;
+    var fg = state.dataFiltro || 'Todos';
+    var ftRaw = state.tempoFiltro || 'Todos';
+    var ft = (ftRaw !== 'Todos' && R.tempos.indexOf(ftRaw) > -1) ? ftRaw : 'Todos';
+    var shown = R.rows.filter(function (r) { return (fg === 'Todos' || r.grupo === fg) && (ft === 'Todos' || r.tempo === ft); });
+
+    function chip(act, attr, val, on) {
+      return '<span data-act="' + act + '" ' + attr + '="' + esc(val) + '" style="font-size:11.5px; font-weight:500; padding:6px 11px; border-radius:20px; cursor:pointer; ' + (on ? 'background:#2f63d6; color:#fff;' : 'background:#fff; border:1px solid #dde2e8; color:#566071;') + '">' + esc(val) + '</span>';
+    }
+    var gChips = ['Todos'].concat(R.grupos.map(function (g) { return g.nome; })).map(function (c) { return chip('filtro', 'data-grupo', c, c === fg); }).join('');
+    var tChips = ['Todos'].concat(R.tempos).map(function (c) { return chip('tempo', 'data-tempo', c, c === ft); }).join('');
+
+    var thVar = R.vars.map(function (v) { return '<th style="padding:10px 12px; font-weight:600;">' + esc((v.nome + (v.unidade ? ' (' + v.unidade + ')' : '')).toUpperCase()) + '</th>'; }).join('');
+    var trs = shown.map(function (r) {
+      var tds = r.cells.map(function (c) {
+        if (c.bg) return '<td style="padding:10px 12px;"><span style="font:600 12px \'IBM Plex Mono\',monospace; padding:3px 8px; border-radius:5px; background:' + c.bg + '; color:' + c.fg + ';">' + esc(c.disp) + '</span></td>';
+        return '<td style="padding:10px 12px;">' + esc(c.disp) + '</td>';
+      }).join('');
+      return '<tr style="border-top:1px solid #f0f3f6;"><td style="padding:10px 16px; font-family:\'IBM Plex Sans\',sans-serif; font-weight:600;">' + esc(r.animal) + '</td><td style="padding:10px 12px; color:#566071;">' + esc(r.grupo) + '</td><td style="padding:10px 12px; color:#8a93a0;">' + esc(r.tempo) + '</td>' + tds + '</tr>';
+    }).join('');
+    if (!trs) trs = '<tr><td colspan="' + (3 + R.vars.length) + '" style="padding:18px 16px; text-align:center; color:#9aa3b0; font-family:\'IBM Plex Sans\',sans-serif;">Nenhum registro para este filtro.</td></tr>';
+
+    var nlCtl = 'width:100%; padding:8px 10px; border:1px solid #dde2e8; border-radius:7px; font-size:13px; box-sizing:border-box;';
+    function nlField(label, ctl) { return '<div><label style="display:block; font-size:11px; font-weight:600; color:#4b5563; margin-bottom:5px;">' + esc(label) + '</label>' + ctl + '</div>'; }
+    var nl = '';
+    if (state.novaLinhaOpen) {
+      if (!session) {
+        nl = '<div style="background:#fdf2dc; border:1px solid #f0d79a; border-radius:8px; padding:12px 14px; margin-bottom:12px; font-size:12.5px; color:#7a5410; display:flex; align-items:center; gap:10px; justify-content:space-between;"><span>Entre na sua conta para salvar novos registros.</span><button data-act="login" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 12px \'IBM Plex Sans\',sans-serif; padding:7px 12px; border-radius:7px; cursor:pointer;">Entrar</button></div>';
+      } else {
+        var animalOpts = model.animais.map(function (a) {
+          var g = null, i; for (i = 0; i < model.grupos.length; i++) if (model.grupos[i].id === a.grupo_id) g = model.grupos[i];
+          return '<option value="' + a.id + '">' + esc(a.identificador + (g ? ' · ' + g.nome : '')) + '</option>';
+        }).join('');
+        var varFields = R.vars.map(function (v) {
+          var ctl = (v.tipo === 'booleano')
+            ? '<select id="nl-v-' + v.id + '" style="' + nlCtl + '"><option value="">—</option><option value="sim">Sim</option><option value="nao">Não</option></select>'
+            : '<input id="nl-v-' + v.id + '"' + (v.tipo === 'numerico' ? ' inputmode="decimal"' : '') + ' placeholder="—" style="' + nlCtl + '">';
+          return nlField(v.nome + (v.unidade ? ' (' + v.unidade + ')' : ''), ctl);
+        }).join('');
+        nl = '<div style="background:#fff; border:1px solid #d3e0fa; border-radius:8px; padding:14px 16px; margin-bottom:12px;">' +
+          '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:10px; align-items:end;">' +
+            nlField('Indivíduo', '<select id="nl-animal" style="' + nlCtl + '">' + animalOpts + '</select>') +
+            nlField('Tempo', '<input id="nl-tempo" value="' + esc(R.curTempo || 'T0') + '" style="' + nlCtl + '">') + varFields +
+          '</div>' +
+          '<div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;"><button data-act="cancelarLinha" style="border:1px solid #dde2e8; background:#fff; color:#566071; font:500 12.5px \'IBM Plex Sans\',sans-serif; padding:9px 12px; border-radius:7px; cursor:pointer;">Cancelar</button><button data-act="salvarLinhaReal" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 12.5px \'IBM Plex Sans\',sans-serif; padding:9px 14px; border-radius:7px; cursor:pointer;">Salvar</button></div>' +
+        '</div>';
+      }
+    }
+
+    return '<div>' +
+      '<div style="display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:16px;"><div><h2 style="margin:0 0 3px; font-size:20px; font-weight:700;">' + esc(R.titulo) + '</h2><div style="font-size:12.5px; color:#6b7585; font-family:\'IBM Plex Mono\',monospace;">' + R.nColetas + ' registros · ' + R.nAnimais + ' indivíduos · ' + R.nGrupos + ' grupos · ' + R.vars.length + ' variáveis</div></div><div style="display:flex; gap:8px;"><button data-act="importarCSV" style="border:1px solid #dde2e8; background:#fff; color:#2b3340; font:500 12.5px \'IBM Plex Sans\',sans-serif; padding:7px 12px; border-radius:7px; cursor:pointer;">Importar CSV</button><input type="file" id="reqlab-csv" accept=".csv,text/csv" style="display:none"><button data-act="exportarCSV" style="border:1px solid #dde2e8; background:#fff; color:#2b3340; font:500 12.5px \'IBM Plex Sans\',sans-serif; padding:7px 12px; border-radius:7px; cursor:pointer;">Exportar</button><button data-act="novaLinha" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 12.5px \'IBM Plex Sans\',sans-serif; padding:7px 14px; border-radius:7px; cursor:pointer;">+ Nova linha</button></div></div>' +
+      nl +
+      '<div style="display:flex; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap;"><span style="font:600 10.5px \'IBM Plex Mono\',monospace; color:#8a93a0; min-width:48px;">GRUPO</span>' + gChips + '</div>' +
+      '<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap;"><span style="font:600 10.5px \'IBM Plex Mono\',monospace; color:#8a93a0; min-width:48px;">TEMPO</span>' + tChips + '</div>' +
+      '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:8px; overflow:auto;">' +
+        '<table style="width:100%; border-collapse:collapse; font-size:12.5px; min-width:560px;"><thead><tr style="color:#8a93a0; text-align:left; font:600 10.5px \'IBM Plex Mono\',monospace; letter-spacing:0.04em; background:#fafbfc;"><th style="padding:10px 16px; font-weight:600;">INDIVÍDUO</th><th style="padding:10px 12px; font-weight:600;">GRUPO</th><th style="padding:10px 12px; font-weight:600;">TEMPO</th>' + thVar + '</tr></thead><tbody style="font-family:\'IBM Plex Mono\',monospace;">' + trs + '</tbody></table>' +
+        '<div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; border-top:1px solid #eef1f4; font:500 11.5px \'IBM Plex Mono\',monospace; color:#8a93a0;"><span>' + shown.length + ' de ' + R.nColetas + ' registros</span></div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // ---------------------------------------------- tela Análises (dados reais)
+  function statCard(label, val, sub) {
+    return '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:8px; padding:13px 14px;"><div style="font-size:11.5px; color:#7a8492; font-weight:500;">' + esc(label) + '</div><div style="font:600 26px/1.1 \'IBM Plex Mono\',monospace; margin:6px 0 4px;">' + esc(val) + '</div><div style="font-size:11px; color:#7a8492;">' + esc(sub) + '</div></div>';
+  }
+  function analisesReal() {
+    var R = d.real;
+    var hl = R.descr[0] || null;
+    var cards = statCard('Registros', R.nColetas, R.tempos.length + ' tempos') +
+      statCard('Indivíduos', R.nAnimais, R.nGrupos + ' grupos') +
+      statCard('Variáveis', R.vars.length, R.descr.length + ' numéricas') +
+      (hl
+        ? '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:8px; padding:13px 14px;"><div style="font-size:11.5px; color:#7a8492; font-weight:500;">ANOVA · ' + esc(hl.nome) + '</div><div style="font:600 22px/1.1 \'IBM Plex Mono\',monospace; margin:6px 0 4px; color:#1d4ed8;">' + (hl.comparavel ? hl.anovaP : '—') + '</div><div style="font-size:11px; color:' + (hl.sig ? '#1f9d6b' : '#7a8492') + '; font-weight:600;">' + (!hl.comparavel ? 'precisa de mais dados' : (hl.sig ? 'diferença significativa' : 'sem diferença significativa')) + '</div></div>'
+        : statCard('ANOVA', '—', 'sem variável numérica'));
+
+    var tchips = R.tempos.map(function (tp) {
+      var on = tp === R.curTempo;
+      return '<span data-act="tempo" data-tempo="' + esc(tp) + '" style="font-size:11.5px; font-weight:500; padding:6px 11px; border-radius:20px; cursor:pointer; ' + (on ? 'background:#2f63d6; color:#fff;' : 'background:#fff; border:1px solid #dde2e8; color:#566071;') + '">' + esc(tp) + '</span>';
+    }).join('');
+
+    var descrBlocks = R.descr.map(function (dv) {
+      var rows = dv.groups.map(function (s) {
+        return '<tr style="border-top:1px solid #f0f3f6; background:' + s.rowbg + ';"><td style="padding:9px 16px; font-family:\'IBM Plex Sans\',sans-serif; font-weight:600;">' + esc(s.nome) + '</td><td style="padding:9px 12px;">' + s.n + '</td><td style="padding:9px 12px;">' + s.mean + '</td><td style="padding:9px 12px;">' + s.sd + '</td><td style="padding:9px 12px;"><span style="' + s.cvs + '">' + s.cv + '</span></td><td style="padding:9px 16px;"><span style="display:inline-flex; align-items:center; gap:6px; font:500 11.5px \'IBM Plex Sans\',sans-serif; color:' + s.stc + ';"><span style="width:7px; height:7px; border-radius:50%; background:' + s.dot + ';"></span>' + esc(s.st) + '</span></td></tr>';
+      }).join('');
+      var badge = dv.comparavel
+        ? '<span style="font:600 11px \'IBM Plex Mono\',monospace; padding:3px 9px; border-radius:5px; background:' + (dv.sig ? '#e7f6ee' : '#eef1f4') + '; color:' + (dv.sig ? '#177a52' : '#6b7585') + ';">ANOVA ' + dv.anovaP + (dv.sig ? ' · significativo' : '') + '</span>'
+        : '<span style="font:600 11px \'IBM Plex Mono\',monospace; padding:3px 9px; border-radius:5px; background:#eef1f4; color:#6b7585;">precisa de ≥2 grupos com n≥2</span>';
+      return '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:8px; overflow:hidden; margin-bottom:12px;"><div style="padding:11px 16px; border-bottom:1px solid #eef1f4; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;"><span style="font-size:13px; font-weight:600;">' + esc(dv.nome) + (dv.unidade ? ' <span style="color:#8a93a0; font-weight:500;">(' + esc(dv.unidade) + ')</span>' : '') + ' · ' + esc(R.curTempo || '') + '</span>' + badge + '</div>' +
+        '<table style="width:100%; border-collapse:collapse; font-size:12.5px;"><thead><tr style="color:#8a93a0; text-align:left; font:600 10.5px \'IBM Plex Mono\',monospace; letter-spacing:0.04em;"><th style="padding:9px 16px; font-weight:600;">GRUPO</th><th style="padding:9px 12px; font-weight:600;">n</th><th style="padding:9px 12px; font-weight:600;">MÉDIA</th><th style="padding:9px 12px; font-weight:600;">DESVIO</th><th style="padding:9px 12px; font-weight:600;">CV</th><th style="padding:9px 16px; font-weight:600;">STATUS</th></tr></thead><tbody style="font-family:\'IBM Plex Mono\',monospace;">' + rows + '</tbody></table></div>';
+    }).join('') || '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:8px; padding:16px; color:#6b7585; font-size:12.5px;">Sem variáveis numéricas para análise descritiva.</div>';
+
+    var rateBlocks = R.rates.map(function (rt) {
+      var bars = rt.bars.map(function (b) { return ovBar(b.label, b.val, b.color, b.color); }).join('');
+      return '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:8px; padding:14px 16px; margin-bottom:12px;"><div style="font-size:13px; font-weight:600; margin-bottom:14px;">Taxa de “' + esc(rt.nome) + '” por grupo (%) · ' + esc(R.curTempo || '') + '</div><div style="display:flex; align-items:flex-end; gap:16px; height:118px;">' + bars + '</div></div>';
+    }).join('');
+
+    var evoBlock = '';
+    if (R.evo) {
+      var W = 300, H = 120, n = R.evo.tempos.length;
+      var lines = R.evo.series.map(function (s) {
+        var pts = [];
+        s.pts.forEach(function (p, i) {
+          if (p.m == null) return;
+          var x = n > 1 ? (i / (n - 1)) * W : W / 2;
+          var y = H - ((p.m - R.evo.ymin) / (R.evo.ymax - R.evo.ymin)) * H;
+          pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+        });
+        return pts.length ? '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + s.color + '" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>' : '';
+      }).join('');
+      var legend = R.evo.series.map(function (s) { return '<span style="display:flex; align-items:center; gap:5px; color:#6b7585;"><span style="width:9px; height:3px; border-radius:2px; background:' + s.color + ';"></span>' + esc(s.nome) + '</span>'; }).join('');
+      var xlabels = R.evo.tempos.map(function (t) { return '<span>' + esc(t) + '</span>'; }).join('');
+      evoBlock = '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:8px; padding:14px 16px; margin-bottom:12px;"><div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;"><div style="font-size:13px; font-weight:600;">Evolução de ' + esc(R.evo.nome) + (R.evo.unidade ? ' (' + esc(R.evo.unidade) + ')' : '') + ' por tempo</div><div style="display:flex; gap:13px; font:500 11px \'IBM Plex Sans\',sans-serif;">' + legend + '</div></div><svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%; height:auto; display:block;"><line x1="0" y1="' + (H / 2) + '" x2="' + W + '" y2="' + (H / 2) + '" stroke="#eef1f4"/><line x1="0" y1="' + (H - 1) + '" x2="' + W + '" y2="' + (H - 1) + '" stroke="#e3e7ec"/>' + lines + '</svg><div style="display:flex; justify-content:space-between; font:500 10.5px \'IBM Plex Mono\',monospace; color:#9aa3b0; margin-top:6px;">' + xlabels + '</div></div>';
+    }
+
+    return '<div>' +
+      '<div style="display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:16px;"><div><h2 style="margin:0 0 3px; font-size:20px; font-weight:700;">Análises estatísticas</h2><div style="font-size:12.5px; color:#6b7585; font-family:\'IBM Plex Mono\',monospace;">' + esc(R.titulo) + '</div></div></div>' +
+      '<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:14px;">' + cards + '</div>' +
+      (R.tempos.length > 1 ? '<div style="display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap;"><span style="font:600 10.5px \'IBM Plex Mono\',monospace; color:#8a93a0;">ANÁLISE NO TEMPO</span>' + tchips + '</div>' : '') +
+      evoBlock + descrBlocks + rateBlocks +
+      '<div style="display:flex; gap:12px; align-items:flex-start; background:#eaf1fd; border:1px solid #d3e0fa; border-radius:8px; padding:12px 14px;">' + ico.bulb + '<div style="font-size:12.8px; line-height:1.5; color:#1c3a78;"><strong>Leitura automática:</strong><br>' + R.insightHTML + '</div></div>' +
+    '</div>';
+  }
+
   // ----------------------------------------------------------------- render
   function screenBody() {
     switch (state.screen) {
@@ -812,6 +1218,9 @@
     var act = el.getAttribute('data-act');
     if (act === 'noop') return;
     if (act === 'salvarLinha') { salvarLinha(); return; }
+    if (act === 'salvarLinhaReal') { salvarLinhaReal(); return; }
+    if (act === 'importarCSV') { var inp = document.getElementById('reqlab-csv'); if (inp) inp.click(); return; }
+    if (act === 'exportarCSV') { exportarCSV(); return; }
     if (act === 'loginEntrar') { doLoginEntrar(); return; }
     if (act === 'logout') { doLogout(); return; }
     if (act === 'go') state.screen = el.getAttribute('data-screen');
@@ -822,9 +1231,19 @@
     else if (act === 'novaLinha') state.novaLinhaOpen = !state.novaLinhaOpen;
     else if (act === 'cancelarLinha') state.novaLinhaOpen = false;
     else if (act === 'filtro') state.dataFiltro = el.getAttribute('data-grupo');
+    else if (act === 'tempo') state.tempoFiltro = el.getAttribute('data-tempo');
     else if (act === 'login') { state.loginOpen = true; state.loginMsg = ''; }
     else if (act === 'loginFechar') { state.loginOpen = false; state.loginMsg = ''; }
     render();
+  });
+
+  // seleção de arquivo CSV (input escondido dentro de #app)
+  document.getElementById('app').addEventListener('change', function (e) {
+    if (e.target && e.target.id === 'reqlab-csv') {
+      var f = e.target.files && e.target.files[0];
+      if (f) importarCSV(f);
+      e.target.value = '';
+    }
   });
 
   // Enter envia o login; Esc fecha o modal

@@ -1,0 +1,9 @@
+grupo,individuo,tempo,Idade (anos),Raça,Peso (kg),Diâmetro folicular (mm),Progesterona (ng/mL),Ovulação,Escore de muco
+Controle,Égua 01,T0,8,Mangalarga,420,22.0,1.2,não,2
+Controle,Égua 01,T30,8,Mangalarga,419,24.5,1.8,não,3
+Controle,Égua 02,T0,11,Crioula,445,21.3,0.8,não,2
+Controle,Égua 02,T30,11,Crioula,444,23.0,1.3,sim,3
+eCG,Égua 09,T0,6,Quarto de Milha,450,34.2,3.1,não,3
+eCG,Égua 09,T30,6,Quarto de Milha,448,41.8,6.4,sim,4
+eCG,Égua 10,T0,7,Quarto de Milha,460,33.5,3.8,não,3
+eCG,Égua 10,T30,7,Quarto de Milha,457,36.0,5.0,sim,4
