@@ -38,11 +38,24 @@ Sem `SUPABASE_URL`/`SUPABASE_KEY` preenchidos, a página funciona inteira em
 
 ## Autenticação
 
-Login por **código de e-mail (OTP)** via Supabase — botão **Entrar** no topo.
-O primeiro login cria a conta automaticamente.
+Login por **e-mail + senha** via Supabase — botão **Entrar** no topo. **Não há
+autocadastro nem confirmação de e-mail**: quem cria as contas é o **orientador**,
+pelo painel do Supabase.
 
 - A pesquisa de demonstração é de **leitura pública** (vê sem login).
 - **Criar/editar** registros (ex.: "+ Nova linha") exige estar logado.
+
+### O orientador cria um usuário (Supabase → Authentication)
+
+1. Painel do Supabase → **Authentication → Users → Add user → Create new user**.
+2. Preencha **e-mail** e **senha** e **marque "Auto Confirm User"** (entra sem
+   precisar confirmar e-mail).
+3. Passe e-mail + senha para o orientando. Ele entra pelo botão **Entrar**.
+
+> Garanta que o autocadastro fique desligado: **Authentication → Sign In / Providers
+> → Email → desligar "Allow new users to sign up"**. Assim só o orientador cria contas.
+> (Opcional: nessa mesma tela, "Confirm email" pode ficar desligado — como as contas
+> já vêm confirmadas pelo "Auto Confirm", não faz diferença para o fluxo.)
 
 ## Modelo de dados
 
