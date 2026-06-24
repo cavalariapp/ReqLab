@@ -999,6 +999,7 @@
       model = { pesquisa: pesquisa, grupos: res[0].data || [], variaveis: res[1].data || [], animais: res[2].data || [], coletas: coletas, valores: valores };
       await sincronizarColetasFeitas(pid, coletas, valores);
       render();
+      checarLembretes();
     } catch (e) { console.error('ReqLab loadModel:', (e && e.message) || e); }
   }
 
@@ -1824,7 +1825,7 @@
     var listaDone = done.length ? '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:8px 20px 16px; margin-top:14px;"><div style="font:600 11px \'IBM Plex Mono\',monospace; color:#8a93a0; padding:10px 0 0;">CONCLUÍDAS (' + done.length + ')</div>' + done.map(linhaTarefa).join('') + '</div>' : '';
     return '<div style="max-width:820px; margin:0 auto;">' +
       '<div style="margin-bottom:18px;"><h2 style="margin:0 0 3px; font-size:20px; font-weight:700;">Tarefas</h2><div style="font-size:13px; color:#6b7585;">' + (ehOrientador() ? 'Tarefas de todos os orientados.' : 'Suas tarefas e coletas.') + '</div></div>' +
-      alerta + cardAddTarefa() +
+      bannerNotif() + alerta + cardAddTarefa() +
       '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:8px 20px 16px;"><div style="font:600 11px \'IBM Plex Mono\',monospace; color:#8a93a0; padding:10px 0 0;">PENDENTES (' + pend.length + ')</div>' + listaPend + '</div>' +
       listaDone +
     '</div>';
@@ -1891,6 +1892,48 @@
     if (!window.confirm('Excluir esta tarefa?')) return;
     try { var r = await sb.from('reqlab_tarefas').delete().eq('id', id); if (r.error) throw r.error; await loadModel(); toast('Tarefa excluída'); }
     catch (e) { alert('Erro: ' + ((e && e.message) || e)); }
+  }
+
+  // -------------------------------------------------------- notificações
+  function notifSuportado() { return ('Notification' in window); }
+  function notifAtivo() { return notifSuportado() && Notification.permission === 'granted'; }
+  function registrarSW() {
+    if ('serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js'); } catch (_) {} }
+  }
+  async function pedirNotificacoes() {
+    if (!notifSuportado()) { alert('Seu navegador não suporta notificações. No iPhone, primeiro adicione o app à tela inicial (compartilhar → Adicionar à Tela de Início).'); return; }
+    try {
+      var p = await Notification.requestPermission();
+      if (p === 'granted') { toast('Lembretes ativados ✓'); checarLembretes(); render(); }
+      else { alert('Permissão negada. Você pode reativar nas configurações do navegador (site → Notificações).'); render(); }
+    } catch (e) { alert('Erro: ' + ((e && e.message) || e)); }
+  }
+  function mostrarNotificacao(titulo, corpo) {
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+        navigator.serviceWorker.ready.then(function (reg) { reg.showNotification(titulo, { body: corpo, icon: 'assets/icone-app.png', badge: 'assets/icone-app.png' }); }).catch(function () { try { new Notification(titulo, { body: corpo, icon: 'assets/icone-app.png' }); } catch (_) {} });
+      } else { new Notification(titulo, { body: corpo, icon: 'assets/icone-app.png' }); }
+    } catch (_) {}
+  }
+  // avisa sobre tarefas pendentes vencendo hoje ou atrasadas (1x por dia por tarefa)
+  function checarLembretes() {
+    if (!notifAtivo() || !session) return;
+    var h = hojeISO();
+    var meus = tarefasList.filter(function (t) { return t.status === 'pendente' && t.owner === session.user.id && t.data && String(t.data).slice(0, 10) <= h; });
+    if (!meus.length) return;
+    var ja = {}; try { ja = JSON.parse(localStorage.getItem('reqlab_notif') || '{}'); } catch (_) {}
+    meus.forEach(function (t) {
+      var key = t.id + '|' + h;
+      if (ja[key]) return;
+      ja[key] = true;
+      var atrasada = String(t.data).slice(0, 10) < h;
+      mostrarNotificacao('ReqLab — ' + (atrasada ? 'tarefa atrasada' : 'tarefa de hoje'), (tipoTarefa(t.tipo).label) + ': ' + t.titulo);
+    });
+    try { localStorage.setItem('reqlab_notif', JSON.stringify(ja)); } catch (_) {}
+  }
+  function bannerNotif() {
+    if (!session || !notifSuportado() || notifAtivo()) return '';
+    return '<div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; background:#eaf1fd; border:1px solid #d3e0fa; border-radius:10px; padding:11px 15px; margin-bottom:14px;"><span style="font-size:12.8px; color:#1c3a78;">🔔 Ative os lembretes para ser avisado das coletas e prazos.</span><button data-act="ativarNotif" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 12px \'IBM Plex Sans\',sans-serif; padding:7px 13px; border-radius:7px; cursor:pointer;">Ativar lembretes</button></div>';
   }
 
   async function salvarFaixas() {
@@ -1992,6 +2035,7 @@
     if (act === 'addTarefa') { adicionarTarefa(); return; }
     if (act === 'toggleTarefa') { toggleTarefa(el.getAttribute('data-id')); return; }
     if (act === 'delTarefa') { excluirTarefa(el.getAttribute('data-id')); return; }
+    if (act === 'ativarNotif') { pedirNotificacoes(); return; }
     if (act === 'loginEntrar') { doLoginEntrar(); return; }
     if (act === 'logout') { doLogout(); return; }
     if (act === 'go') { state.screen = el.getAttribute('data-screen'); state.menuOpen = false; state.editCell = null; state.novaLinhaOpen = false; }
@@ -2059,6 +2103,8 @@
   });
 
   // ------------------------------------------------------------------- boot
+  registrarSW();
+  setInterval(checarLembretes, 30 * 60 * 1000);  // relembra a cada 30 min com o app aberto
   (async function () {
     if (sb) { try { var r = await sb.auth.getSession(); session = r.data.session; } catch (e) {} }
     await carregarPerfil();
