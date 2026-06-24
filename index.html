@@ -1791,16 +1791,16 @@
     var planner = '';
     if (podeP) {
       var tempos = d.real.tempos;
-      var chips = tempos.length ? tempos.map(function (tp) { return '<span style="font:600 10px \'IBM Plex Mono\',monospace; background:#eaf1fd; color:#1d4ed8; padding:4px 9px; border-radius:20px;">' + esc(tp) + '</span>'; }).join(' ') : '<span style="font-size:12px; color:#9aa3b0;">defina tempos no experimento</span>';
+      var chips = tempos.length ? tempos.map(function (tp) { return '<label style="display:inline-flex; align-items:center; gap:5px; font:600 11px \'IBM Plex Mono\',monospace; color:#1d4ed8; background:#eaf1fd; padding:5px 10px; border-radius:20px; cursor:pointer;"><input type="checkbox" class="plan-tempo" value="' + esc(tp) + '" checked style="margin:0; cursor:pointer;">' + esc(tp) + '</label>'; }).join(' ') : '<span style="font-size:12px; color:#9aa3b0;">Este experimento ainda não tem tempos — adicione em Experimentos.</span>';
       planner = '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:18px 20px; margin-bottom:14px;">' +
         '<div style="font-size:14px; font-weight:600;">Planejar coletas — ' + esc(model.pesquisa.titulo) + '</div>' +
-        '<div style="font-size:12px; color:#6b7585; margin:2px 0 12px;">Informe a data do <strong>T0</strong> e a unidade dos tempos. O sistema calcula as datas de cada coleta e cria as tarefas no cronograma seu e do orientador.</div>' +
-        '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin-bottom:10px;">' +
+        '<div style="font-size:12px; color:#6b7585; margin:2px 0 12px;">Tempos deste experimento abaixo (marque os que quer agendar). Informe a data do <strong>T0</strong> e a unidade; o sistema calcula as datas e cria as coletas no cronograma seu e do orientador.</div>' +
+        '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:12px;"><span style="font:600 10px \'IBM Plex Mono\',monospace; color:#8a93a0;">TEMPOS:</span> ' + chips + '</div>' +
+        '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:end;">' +
           '<div><label style="display:block; font-size:11px; font-weight:600; color:#4b5563; margin-bottom:5px;">Data do T0</label><input type="date" id="plan-t0" value="' + esc(state.planT0 || '') + '" style="' + cs + '"></div>' +
           '<div><label style="display:block; font-size:11px; font-weight:600; color:#4b5563; margin-bottom:5px;">Unidade dos tempos</label><select id="plan-unidade" style="' + cs + '"><option value="dias"' + (state.planUnidade === 'dias' ? ' selected' : '') + '>Dias</option><option value="horas"' + (state.planUnidade === 'horas' ? ' selected' : '') + '>Horas</option><option value="minutos"' + (state.planUnidade === 'minutos' ? ' selected' : '') + '>Minutos</option></select></div>' +
           '<button data-act="gerarColetas" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 13px \'IBM Plex Sans\',sans-serif; padding:9px 16px; border-radius:8px; cursor:pointer;">Gerar coletas</button>' +
         '</div>' +
-        '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;"><span style="font:600 10px \'IBM Plex Mono\',monospace; color:#8a93a0;">TEMPOS:</span> ' + chips + '</div>' +
       '</div>';
     }
     var addForm = cardAddTarefa();
@@ -1836,8 +1836,9 @@
     var unidade = (document.getElementById('plan-unidade') || {}).value || 'dias';
     state.planT0 = t0; state.planUnidade = unidade;
     if (!t0) { state.tarMsg = 'Escolha a data do T0.'; render(); return; }
-    var tempos = d.real.tempos;
-    if (!tempos.length) { state.tarMsg = 'Este experimento não tem tempos definidos.'; render(); return; }
+    var nodes = document.querySelectorAll('input.plan-tempo:checked');
+    var tempos = []; for (var k = 0; k < nodes.length; k++) tempos.push(nodes[k].value);
+    if (!tempos.length) { alert('Marque ao menos um tempo para agendar.'); return; }
     var msUnid = unidade === 'minutos' ? 60000 : (unidade === 'horas' ? 3600000 : 86400000);
     var base = new Date(t0 + 'T12:00:00');
     try {
