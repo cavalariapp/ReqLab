@@ -1007,11 +1007,13 @@
   async function sincronizarColetasFeitas(pid, coletas, valores) {
     if (!tarefasList.length) return;
     var comValor = {}; valores.forEach(function (v) { comValor[v.coleta_id] = true; });
-    var diasComDados = {}; coletas.forEach(function (c) { if (comValor[c.id]) diasComDados[c.dia] = true; });
+    var diasComDados = {}, animalDia = {};
+    coletas.forEach(function (c) { if (comValor[c.id]) { diasComDados[c.dia] = true; animalDia[c.animal_id + '|' + c.dia] = true; } });
     var pendentes = [];
     tarefasList.forEach(function (t) {
       if (t.auto && t.tipo === 'coleta' && t.pesquisa_id === pid) {
-        var novo = diasComDados[t.tempo] ? 'feita' : 'pendente';
+        var temData = t.animal_id ? !!animalDia[t.animal_id + '|' + t.tempo] : !!diasComDados[t.tempo];
+        var novo = temData ? 'feita' : 'pendente';
         if (t.status !== novo) { t.status = novo; pendentes.push({ id: t.id, status: novo }); }
       }
     });
@@ -1792,16 +1794,20 @@
     var planner = '';
     if (podeP) {
       var tempos = d.real.tempos;
-      var chips = tempos.length ? tempos.map(function (tp) { return '<label style="display:inline-flex; align-items:center; gap:5px; font:600 11px \'IBM Plex Mono\',monospace; color:#1d4ed8; background:#eaf1fd; padding:5px 10px; border-radius:20px; cursor:pointer;"><input type="checkbox" class="plan-tempo" value="' + esc(tp) + '" checked style="margin:0; cursor:pointer;">' + esc(tp) + '</label>'; }).join(' ') : '<span style="font-size:12px; color:#9aa3b0;">Este experimento ainda não tem tempos — adicione em Experimentos.</span>';
+      var chips = tempos.length ? tempos.map(function (tp) { return '<label style="display:inline-flex; align-items:center; gap:5px; font:600 11px \'IBM Plex Mono\',monospace; color:#1d4ed8; background:#eaf1fd; padding:5px 10px; border-radius:20px; cursor:pointer;"><input type="checkbox" class="plan-tempo" value="' + esc(tp) + '" checked style="margin:0; cursor:pointer;">' + esc(tp) + '</label>'; }).join(' ') : '<span style="font-size:12px; color:#9aa3b0;">Nenhum tempo ainda — adicione um abaixo.</span>';
+      var indivOpts = '<option value="todos">Todos os indivíduos</option>' + model.animais.map(function (a) { return '<option value="' + a.id + '">' + esc(a.identificador) + '</option>'; }).join('');
       planner = '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:18px 20px; margin-bottom:14px;">' +
         '<div style="font-size:14px; font-weight:600;">Planejar coletas — ' + esc(model.pesquisa.titulo) + '</div>' +
-        '<div style="font-size:12px; color:#6b7585; margin:2px 0 12px;">Tempos deste experimento abaixo (marque os que quer agendar). Informe a data do <strong>T0</strong> e a unidade; o sistema calcula as datas e cria as coletas no cronograma seu e do orientador.</div>' +
-        '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:12px;"><span style="font:600 10px \'IBM Plex Mono\',monospace; color:#8a93a0;">TEMPOS:</span> ' + chips + '</div>' +
+        '<div style="font-size:12px; color:#6b7585; margin:2px 0 12px;">Escolha o indivíduo e marque os tempos. Informe a data do <strong>T0</strong> e a unidade; o sistema calcula as datas e cria as coletas no cronograma seu e do orientador. A coleta vira "feita" quando aquele indivíduo tiver dados naquele tempo.</div>' +
+        '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:10px;"><span style="font:600 10px \'IBM Plex Mono\',monospace; color:#8a93a0;">TEMPOS:</span> ' + chips + '</div>' +
+        '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:12px;"><input id="plan-novo-tempo" placeholder="novo tempo (ex.: T360)" style="' + cs + ' width:170px;"><button data-act="addTempoPlano" style="border:1.5px dashed #cfd6df; background:#fff; color:#2f63d6; border-radius:7px; padding:8px 12px; cursor:pointer; font-weight:600; font-size:12.5px;">+ Adicionar tempo</button></div>' +
         '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:end;">' +
+          '<div><label style="display:block; font-size:11px; font-weight:600; color:#4b5563; margin-bottom:5px;">Indivíduo</label><select id="plan-individuo" style="' + cs + '">' + indivOpts + '</select></div>' +
           '<div><label style="display:block; font-size:11px; font-weight:600; color:#4b5563; margin-bottom:5px;">Data do T0</label><input type="date" id="plan-t0" value="' + esc(state.planT0 || '') + '" style="' + cs + '"></div>' +
           '<div><label style="display:block; font-size:11px; font-weight:600; color:#4b5563; margin-bottom:5px;">Unidade dos tempos</label><select id="plan-unidade" style="' + cs + '"><option value="dias"' + (state.planUnidade === 'dias' ? ' selected' : '') + '>Dias</option><option value="horas"' + (state.planUnidade === 'horas' ? ' selected' : '') + '>Horas</option><option value="minutos"' + (state.planUnidade === 'minutos' ? ' selected' : '') + '>Minutos</option></select></div>' +
           '<button data-act="gerarColetas" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 13px \'IBM Plex Sans\',sans-serif; padding:9px 16px; border-radius:8px; cursor:pointer;">Gerar coletas</button>' +
         '</div>' +
+        (state.tarMsg ? '<div style="font-size:12px; color:#c0392b; margin-top:10px;">' + esc(state.tarMsg) + '</div>' : '') +
       '</div>';
     }
     var addForm = cardAddTarefa();
@@ -1831,33 +1837,57 @@
     '</div>';
   }
 
+  async function addTempoNoPlano() {
+    if (!model || !podeEditar()) return;
+    var t = ((document.getElementById('plan-novo-tempo') || {}).value || '').trim();
+    if (!t) { state.tarMsg = 'Digite o nome do tempo.'; render(); return; }
+    var plan = (model.pesquisa.tempos || '').split(/[,;]/).map(function (s) { return s.trim(); }).filter(Boolean);
+    if (plan.indexOf(t) < 0) plan.push(t);
+    plan.sort(cmpTempo);
+    try {
+      var r = await sb.from('reqlab_pesquisas').update({ tempos: plan.join(', ') }).eq('id', model.pesquisa.id);
+      if (r.error) throw r.error; state.tarMsg = ''; await loadModel(); toast('Tempo adicionado ✓');
+    } catch (e) { state.tarMsg = 'Erro ao adicionar tempo: ' + ((e && e.message) || e); render(); }
+  }
+
   async function gerarColetas() {
     if (!model || !podeEditar()) return;
     var t0 = (document.getElementById('plan-t0') || {}).value || '';
     var unidade = (document.getElementById('plan-unidade') || {}).value || 'dias';
+    var alvo = (document.getElementById('plan-individuo') || {}).value || 'todos';
     state.planT0 = t0; state.planUnidade = unidade;
     if (!t0) { state.tarMsg = 'Escolha a data do T0.'; render(); return; }
     var nodes = document.querySelectorAll('input.plan-tempo:checked');
     var tempos = []; for (var k = 0; k < nodes.length; k++) tempos.push(nodes[k].value);
     if (!tempos.length) { alert('Marque ao menos um tempo para agendar.'); return; }
+    var animais = (alvo === 'todos') ? model.animais.slice() : model.animais.filter(function (a) { return a.id === alvo; });
+    if (!animais.length) { alert('Este experimento não tem indivíduos. Adicione em Experimentos.'); return; }
     var msUnid = unidade === 'minutos' ? 60000 : (unidade === 'horas' ? 3600000 : 86400000);
     var base = new Date(t0 + 'T12:00:00');
     try {
-      await sb.from('reqlab_tarefas').delete().eq('pesquisa_id', model.pesquisa.id).eq('auto', true).eq('tipo', 'coleta');
-      var rows = tempos.map(function (tp) {
-        var mt = String(tp).match(/-?\d+(\.\d+)?/);
-        var n = mt ? Number(mt[0]) : 0;
-        var dt = new Date(base.getTime() + n * msUnid);
-        var diaISO = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-        return { pesquisa_id: model.pesquisa.id, owner: model.pesquisa.owner, criado_por: session.user.id, tipo: 'coleta', titulo: 'Coleta ' + tp, data: diaISO, tempo: tp, auto: true, status: 'pendente' };
+      // regenera só os indivíduos escolhidos (mantém os outros)
+      var delq = sb.from('reqlab_tarefas').delete().eq('pesquisa_id', model.pesquisa.id).eq('auto', true).eq('tipo', 'coleta');
+      if (alvo !== 'todos') delq = delq.eq('animal_id', alvo);
+      var del = await delq; if (del.error) throw del.error;
+      var rows = [];
+      animais.forEach(function (a) {
+        tempos.forEach(function (tp) {
+          var mt = String(tp).match(/-?\d+(\.\d+)?/);
+          var n = mt ? Number(mt[0]) : 0;
+          var dt = new Date(base.getTime() + n * msUnid);
+          var diaISO = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+          rows.push({ pesquisa_id: model.pesquisa.id, owner: model.pesquisa.owner, criado_por: session.user.id, animal_id: a.id, tipo: 'coleta', titulo: 'Coleta ' + a.identificador + ' · ' + tp, data: diaISO, tempo: tp, auto: true, status: 'pendente' });
+        });
       });
-      var ins = await sb.from('reqlab_tarefas').insert(rows);
-      if (ins.error) throw ins.error;
-      state.tarMsg = ''; await loadModel(); toast('Cronograma de coletas gerado ✓');
+      for (var b = 0; b < rows.length; b += 500) {
+        var ins = await sb.from('reqlab_tarefas').insert(rows.slice(b, b + 500));
+        if (ins.error) throw ins.error;
+      }
+      state.tarMsg = ''; await loadModel(); toast(rows.length + ' coleta(s) agendada(s) ✓');
     } catch (e) {
       var m = (e && e.message) || e;
       state.tarMsg = 'Erro: ' + m; render();
-      alert('Não foi possível gerar as coletas.\n\n' + m + '\n\nSe a mensagem falar em "row-level security", rode o sql/008_corrige_tarefas_rls.sql no Supabase.');
+      alert('Não foi possível gerar as coletas.\n\n' + m + '\n\nSe a mensagem falar em "animal_id" ou coluna, rode o sql/009_tarefa_individuo.sql. Se falar em "row-level security", rode o sql/008.');
     }
   }
 
@@ -2032,6 +2062,7 @@
     if (act === 'addGrupo') { adicionarGrupo(); return; }
     if (act === 'addIndiv') { adicionarIndividuo(); return; }
     if (act === 'gerarColetas') { gerarColetas(); return; }
+    if (act === 'addTempoPlano') { addTempoNoPlano(); return; }
     if (act === 'addTarefa') { adicionarTarefa(); return; }
     if (act === 'toggleTarefa') { toggleTarefa(el.getAttribute('data-id')); return; }
     if (act === 'delTarefa') { excluirTarefa(el.getAttribute('data-id')); return; }
