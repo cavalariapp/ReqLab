@@ -54,6 +54,7 @@
   var experiments = [];   // todos os experimentos visíveis ao usuário
   var perfil = null;      // { user_id, nome, papel } do usuário logado
   var perfisAll = [];     // perfis de todos (para mostrar nomes dos donos)
+  var tarefasList = [];   // tarefas/cronograma visíveis ao usuário
   var isMobile = window.matchMedia('(max-width: 760px)').matches;  // layout de celular
 
   // ----------------------------------------------------------------- state
@@ -62,7 +63,8 @@
     dataFiltro: 'Todos', tempoFiltro: 'Todos', varFiltro: 'Todos', novaLinhaOpen: false,
     loginOpen: false, loginMsg: '', editCell: null,
     anVar: null, anGrupo: 'Todos',
-    pesquisaId: null, novoExpOpen: false, expForm: null, usrMsg: '', menuOpen: false, toast: null
+    pesquisaId: null, novoExpOpen: false, expForm: null, usrMsg: '', menuOpen: false, toast: null,
+    planT0: '', planUnidade: 'dias', tarMsg: ''
   };
   var toastTimer = null;
   function toast(msg, ok) {
@@ -173,7 +175,8 @@
     function item(k, icon, label, extra) {
       return '<div style="' + navStyle(k) + '" data-act="go" data-screen="' + k + '">' + icon + label + (extra || '') + '</div>';
     }
-    var badge = '';
+    var nPend = session ? tarefasPendentes().length : 0;
+    var badge = nPend ? '<span style="margin-left:auto; font:600 10px/1 \'IBM Plex Mono\',monospace; background:#fdecec; color:#cc4433; padding:2px 6px; border-radius:20px;">' + nPend + '</span>' : '';
     var inner = '<div style="padding:4px 6px 18px;">' + logoLab(40) + '</div>' +
       '<div style="font:600 10px/1 \'IBM Plex Mono\',monospace; color:#aab2bd; letter-spacing:0.12em; padding:6px 8px 8px;">MENU</div>' +
       '<nav style="display:flex; flex-direction:column; gap:2px;">' +
@@ -965,6 +968,10 @@
       var pq = await lq;
       if (pq.error) throw pq.error;
       experiments = pq.data || [];
+      if (session && session.user) {
+        try { var tq = await sb.from('reqlab_tarefas').select('*').order('data', { ascending: true }); tarefasList = tq.error ? [] : (tq.data || []); }
+        catch (_) { tarefasList = []; }
+      } else { tarefasList = []; }
       if (!experiments.length) { model = null; state.pesquisaId = null; render(); return; }
       var pesquisa = null, i;
       for (i = 0; i < experiments.length; i++) if (experiments[i].id === state.pesquisaId) pesquisa = experiments[i];
@@ -990,8 +997,26 @@
         if (vr.error) throw vr.error; valores = vr.data || [];
       }
       model = { pesquisa: pesquisa, grupos: res[0].data || [], variaveis: res[1].data || [], animais: res[2].data || [], coletas: coletas, valores: valores };
+      await sincronizarColetasFeitas(pid, coletas, valores);
       render();
     } catch (e) { console.error('ReqLab loadModel:', (e && e.message) || e); }
+  }
+
+  // marca "feita" as tarefas de coleta cujo tempo já tem dados no experimento atual
+  async function sincronizarColetasFeitas(pid, coletas, valores) {
+    if (!tarefasList.length) return;
+    var comValor = {}; valores.forEach(function (v) { comValor[v.coleta_id] = true; });
+    var diasComDados = {}; coletas.forEach(function (c) { if (comValor[c.id]) diasComDados[c.dia] = true; });
+    var pendentes = [];
+    tarefasList.forEach(function (t) {
+      if (t.auto && t.tipo === 'coleta' && t.pesquisa_id === pid) {
+        var novo = diasComDados[t.tempo] ? 'feita' : 'pendente';
+        if (t.status !== novo) { t.status = novo; pendentes.push({ id: t.id, status: novo }); }
+      }
+    });
+    for (var i = 0; i < pendentes.length; i++) {
+      try { await sb.from('reqlab_tarefas').update({ status: pendentes[i].status }).eq('id', pendentes[i].id); } catch (_) {}
+    }
   }
 
   async function salvarLinha() {
@@ -1032,7 +1057,7 @@
     session = r.data.session; state.loginOpen = false; state.loginMsg = '';
     render(); await carregarPerfil(); render(); loadModel();
   }
-  async function doLogout() { if (sb) { try { await sb.auth.signOut(); } catch (e) {} } session = null; perfil = null; perfisAll = []; model = null; experiments = []; state.pesquisaId = null; render(); }
+  async function doLogout() { if (sb) { try { await sb.auth.signOut(); } catch (e) {} } session = null; perfil = null; perfisAll = []; tarefasList = []; model = null; experiments = []; state.pesquisaId = null; render(); }
 
   // =============================================== importação / exportação CSV
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]; }); }
@@ -1332,7 +1357,7 @@
       '<div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;"><span style="font:600 10.5px \'IBM Plex Mono\',monospace; color:#8a93a0; min-width:48px;">TEMPO</span>' + tChips + '</div>' +
       '<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;"><span style="font:600 10.5px \'IBM Plex Mono\',monospace; color:#8a93a0; min-width:48px;">VARIÁVEL</span>' + vChips + '</div>' +
       (ro ? '<div style="height:6px;"></div>' : '<div style="font-size:11.5px; color:#9aa3b0; margin-bottom:12px;">💡 Clique em qualquer célula para editar. Apague o valor para marcar como “não coletado”.</div>') +
-      '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:8px; overflow:auto;">' +
+      '<div id="dados-scroll" style="background:#fff; border:1px solid #e9ecf0; border-radius:8px; overflow:auto;">' +
         '<table style="width:100%; border-collapse:collapse; font-size:12.5px; min-width:560px;"><thead><tr style="color:#8a93a0; text-align:left; font:600 10.5px \'IBM Plex Mono\',monospace; letter-spacing:0.04em; background:#fafbfc;"><th style="padding:10px 16px; font-weight:600;">INDIVÍDUO</th><th style="padding:10px 12px; font-weight:600;">GRUPO</th><th style="padding:10px 12px; font-weight:600;">TEMPO</th>' + thVar + '</tr></thead><tbody style="font-family:\'IBM Plex Mono\',monospace;">' + trs + '</tbody></table>' +
         '<div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; border-top:1px solid #eef1f4; font:500 11.5px \'IBM Plex Mono\',monospace; color:#8a93a0;"><span>' + shown.length + ' de ' + R.nColetas + ' registros</span></div>' +
       '</div>' +
@@ -1459,8 +1484,14 @@
         '<button data-act="go" data-screen="analises" style="border:1px solid #dde2e8; background:#fff; color:#2b3340; font:600 13px \'IBM Plex Sans\',sans-serif; padding:10px 16px; border-radius:8px; cursor:pointer;">Ver análises →</button>' +
         btnRegistrar +
       '</div>' +
+      alertaTarefas() +
       '<div style="display:flex; gap:12px; align-items:flex-start; background:#eaf1fd; border:1px solid #d3e0fa; border-radius:10px; padding:13px 15px;">' + ico.bulb + '<div style="font-size:12.8px; line-height:1.5; color:#1c3a78;"><strong>Leitura automática:</strong><br>' + R.insightHTML + '</div></div>' +
     '</div>';
+  }
+  function alertaTarefas() {
+    var pend = tarefasPendentes(), atr = tarefasAtrasadas();
+    if (!pend.length) return '';
+    return '<div data-act="go" data-screen="tarefas" style="display:flex; gap:12px; align-items:center; background:' + (atr.length ? '#fdecec' : '#fdf2dc') + '; border:1px solid ' + (atr.length ? '#f2c3bc' : '#f0d79a') + '; border-radius:10px; padding:13px 15px; margin-bottom:14px; cursor:pointer;">' + (atr.length ? ico.warnTri : ico.bulb) + '<div style="font-size:13px; color:' + (atr.length ? '#7a1f17' : '#7a5410') + '; flex:1;"><strong>' + pend.length + ' tarefa(s) pendente(s)</strong>' + (atr.length ? ' · <strong>' + atr.length + ' atrasada(s)</strong>' : '') + '. Toque para ver.</div><span style="font-size:13px; color:#8a93a0;">→</span></div>';
   }
 
   function ensureExpForm() {
@@ -1704,6 +1735,150 @@
     } catch (e) { state.usrMsg = 'Erro: ' + ((e && e.message) || e); render(); }
   }
 
+  // ===================================================== tarefas / cronograma
+  function tipoTarefa(t) {
+    var m = {
+      coleta: { label: 'Coleta', cor: '#2f63d6', bg: '#eaf1fd' },
+      aula: { label: 'Aula', cor: '#9b59b6', bg: '#f3e9f9' },
+      entrega: { label: 'Entrega', cor: '#d99a18', bg: '#fdf2dc' },
+      congresso: { label: 'Congresso', cor: '#1f9d6b', bg: '#e7f6ee' },
+      outro: { label: 'Outro', cor: '#566071', bg: '#eef1f4' }
+    };
+    return m[t] || m.outro;
+  }
+  function hojeISO() { var x = new Date(); return new Date(x.getTime() - x.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+  function fmtData(s) { if (!s) return '—'; var p = String(s).slice(0, 10).split('-'); return p.length === 3 ? p[2] + '/' + p[1] : String(s); }
+  function tarefasPendentes() { return tarefasList.filter(function (t) { return t.status === 'pendente'; }); }
+  function tarefasAtrasadas() { var h = hojeISO(); return tarefasPendentes().filter(function (t) { return t.data && String(t.data).slice(0, 10) < h; }); }
+  function podeMexerTarefa(t) { return ehOrientador() || (session && session.user && (t.owner === session.user.id || t.criado_por === session.user.id)); }
+
+  function linhaTarefa(t) {
+    var ti = tipoTarefa(t.tipo), h = hojeISO();
+    var feita = t.status === 'feita';
+    var atrasada = !feita && t.data && String(t.data).slice(0, 10) < h;
+    var dono = (ehOrientador() && t.owner && session && t.owner !== session.user.id) ? ' · ' + esc(nomeDono(t.owner)) : '';
+    var statusTag = feita
+      ? '<span style="font:600 10px \'IBM Plex Mono\',monospace; color:#177a52; background:#e7f6ee; padding:3px 8px; border-radius:20px; flex:none;">feita ✓</span>'
+      : (atrasada ? '<span style="font:600 10px \'IBM Plex Mono\',monospace; color:#c0392b; background:#fdecec; padding:3px 8px; border-radius:20px; flex:none;">atrasada</span>'
+        : '<span style="font:600 10px \'IBM Plex Mono\',monospace; color:#9a6a12; background:#fdf2dc; padding:3px 8px; border-radius:20px; flex:none;">pendente</span>');
+    var pode = podeMexerTarefa(t);
+    var check = (pode && !t.auto) ? '<button data-act="toggleTarefa" data-id="' + t.id + '" title="Marcar feita/pendente" style="border:1px solid ' + (feita ? '#1f9d6b' : '#dde2e8') + '; background:' + (feita ? '#1f9d6b' : '#fff') + '; color:#fff; border-radius:6px; width:24px; height:24px; cursor:pointer; flex:none; line-height:1;">' + (feita ? '✓' : '') + '</button>' : '<span style="width:24px; flex:none;"></span>';
+    var del = pode ? '<button data-act="delTarefa" data-id="' + t.id + '" title="Excluir" style="border:none; background:transparent; color:#b3372a; cursor:pointer; flex:none; font-size:13px;">✕</button>' : '';
+    return '<div style="display:flex; align-items:center; gap:10px; padding:11px 0; border-top:1px solid #f0f3f6;">' + check +
+      '<div style="width:48px; flex:none; font:600 11.5px \'IBM Plex Mono\',monospace; color:#566071;">' + esc(fmtData(t.data)) + '</div>' +
+      '<span style="font:600 10px \'IBM Plex Mono\',monospace; color:' + ti.cor + '; background:' + ti.bg + '; padding:3px 8px; border-radius:20px; flex:none;">' + esc(ti.label) + '</span>' +
+      '<div style="flex:1; min-width:0; font-size:13px;' + (feita ? ' color:#8a93a0; text-decoration:line-through;' : '') + '">' + esc(t.titulo) + (t.tempo ? ' · ' + esc(t.tempo) : '') + dono + '</div>' +
+      statusTag + del + '</div>';
+  }
+
+  function cronogramaReal() {
+    var podeP = model && podeEditar();
+    var cs = 'padding:9px 11px; border:1px solid #dde2e8; border-radius:7px; font-size:13px; box-sizing:border-box;';
+    var planner = '';
+    if (podeP) {
+      var tempos = d.real.tempos;
+      var chips = tempos.length ? tempos.map(function (tp) { return '<span style="font:600 10px \'IBM Plex Mono\',monospace; background:#eaf1fd; color:#1d4ed8; padding:4px 9px; border-radius:20px;">' + esc(tp) + '</span>'; }).join(' ') : '<span style="font-size:12px; color:#9aa3b0;">defina tempos no experimento</span>';
+      planner = '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:18px 20px; margin-bottom:14px;">' +
+        '<div style="font-size:14px; font-weight:600;">Planejar coletas — ' + esc(model.pesquisa.titulo) + '</div>' +
+        '<div style="font-size:12px; color:#6b7585; margin:2px 0 12px;">Informe a data do <strong>T0</strong> e a unidade dos tempos. O sistema calcula as datas de cada coleta e cria as tarefas no cronograma seu e do orientador.</div>' +
+        '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin-bottom:10px;">' +
+          '<div><label style="display:block; font-size:11px; font-weight:600; color:#4b5563; margin-bottom:5px;">Data do T0</label><input type="date" id="plan-t0" value="' + esc(state.planT0 || '') + '" style="' + cs + '"></div>' +
+          '<div><label style="display:block; font-size:11px; font-weight:600; color:#4b5563; margin-bottom:5px;">Unidade dos tempos</label><select id="plan-unidade" style="' + cs + '"><option value="dias"' + (state.planUnidade === 'dias' ? ' selected' : '') + '>Dias</option><option value="horas"' + (state.planUnidade === 'horas' ? ' selected' : '') + '>Horas</option><option value="minutos"' + (state.planUnidade === 'minutos' ? ' selected' : '') + '>Minutos</option></select></div>' +
+          '<button data-act="gerarColetas" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 13px \'IBM Plex Sans\',sans-serif; padding:9px 16px; border-radius:8px; cursor:pointer;">Gerar coletas</button>' +
+        '</div>' +
+        '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;"><span style="font:600 10px \'IBM Plex Mono\',monospace; color:#8a93a0;">TEMPOS:</span> ' + chips + '</div>' +
+      '</div>';
+    }
+    var addForm = '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:18px 20px; margin-bottom:14px;">' +
+      '<div style="font-size:14px; font-weight:600; margin-bottom:12px;">Adicionar item ao cronograma</div>' +
+      '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:end;">' +
+        '<select id="tar-tipo" style="' + cs + '"><option value="aula">Aula</option><option value="entrega">Entrega</option><option value="congresso">Congresso</option><option value="coleta">Coleta</option><option value="outro">Outro</option></select>' +
+        '<input id="tar-titulo" placeholder="Descrição (ex.: Entrega do relatório)" style="' + cs + ' flex:1; min-width:160px;">' +
+        '<input type="date" id="tar-data" style="' + cs + '">' +
+        '<button data-act="addTarefa" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 13px \'IBM Plex Sans\',sans-serif; padding:9px 16px; border-radius:8px; cursor:pointer;">Adicionar</button>' +
+      '</div>' +
+      (state.tarMsg ? '<div style="font-size:12px; color:#c0392b; margin-top:10px;">' + esc(state.tarMsg) + '</div>' : '') +
+    '</div>';
+    var ordenadas = tarefasList.slice().sort(function (a, b) { return String(a.data || '9999').localeCompare(String(b.data || '9999')); });
+    var lista = ordenadas.length ? ordenadas.map(linhaTarefa).join('') : '<div style="font-size:12.5px; color:#9aa3b0; padding:10px 0;">Nenhum item no cronograma ainda.</div>';
+    return '<div style="max-width:820px; margin:0 auto;">' +
+      '<div style="margin-bottom:18px;"><h2 style="margin:0 0 3px; font-size:20px; font-weight:700;">Cronograma</h2><div style="font-size:13px; color:#6b7585;">Coletas, aulas, entregas e congressos.</div></div>' +
+      planner + addForm +
+      '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:8px 20px 16px;">' + lista + '</div>' +
+    '</div>';
+  }
+
+  function tarefasReal() {
+    var pend = tarefasPendentes(), atr = tarefasAtrasadas();
+    var ordPend = pend.slice().sort(function (a, b) { return String(a.data || '9999').localeCompare(String(b.data || '9999')); });
+    var done = tarefasList.filter(function (t) { return t.status === 'feita'; });
+    var alerta = pend.length
+      ? '<div style="display:flex; gap:12px; align-items:flex-start; background:' + (atr.length ? '#fdecec' : '#fdf2dc') + '; border:1px solid ' + (atr.length ? '#f2c3bc' : '#f0d79a') + '; border-radius:10px; padding:13px 15px; margin-bottom:14px;">' + (atr.length ? ico.warnTri : ico.bulb) + '<div style="font-size:13px; color:' + (atr.length ? '#7a1f17' : '#7a5410') + ';"><strong>' + pend.length + ' tarefa(s) pendente(s)</strong>' + (atr.length ? ' · <strong>' + atr.length + ' atrasada(s)</strong>' : '') + '. ' + (ehOrientador() ? 'Inclui as dos seus orientados.' : 'Preencha os dados da coleta para marcá-la como feita.') + '</div></div>'
+      : '<div style="display:flex; gap:12px; align-items:center; background:#e7f6ee; border:1px solid #b9e3cd; border-radius:10px; padding:13px 15px; margin-bottom:14px; font-size:13px; color:#177a52;">✓ Tudo em dia — nenhuma tarefa pendente.</div>';
+    var listaPend = ordPend.length ? ordPend.map(linhaTarefa).join('') : '<div style="font-size:12.5px; color:#9aa3b0; padding:10px 0;">Sem pendências.</div>';
+    var listaDone = done.length ? '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:8px 20px 16px; margin-top:14px;"><div style="font:600 11px \'IBM Plex Mono\',monospace; color:#8a93a0; padding:10px 0 0;">CONCLUÍDAS (' + done.length + ')</div>' + done.map(linhaTarefa).join('') + '</div>' : '';
+    return '<div style="max-width:820px; margin:0 auto;">' +
+      '<div style="margin-bottom:18px;"><h2 style="margin:0 0 3px; font-size:20px; font-weight:700;">Tarefas</h2><div style="font-size:13px; color:#6b7585;">' + (ehOrientador() ? 'Tarefas de todos os orientados.' : 'Suas tarefas e coletas.') + '</div></div>' +
+      alerta +
+      '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:8px 20px 16px;"><div style="font:600 11px \'IBM Plex Mono\',monospace; color:#8a93a0; padding:10px 0 0;">PENDENTES (' + pend.length + ')</div>' + listaPend + '</div>' +
+      listaDone +
+    '</div>';
+  }
+
+  async function gerarColetas() {
+    if (!model || !podeEditar()) return;
+    var t0 = (document.getElementById('plan-t0') || {}).value || '';
+    var unidade = (document.getElementById('plan-unidade') || {}).value || 'dias';
+    state.planT0 = t0; state.planUnidade = unidade;
+    if (!t0) { state.tarMsg = 'Escolha a data do T0.'; render(); return; }
+    var tempos = d.real.tempos;
+    if (!tempos.length) { state.tarMsg = 'Este experimento não tem tempos definidos.'; render(); return; }
+    var msUnid = unidade === 'minutos' ? 60000 : (unidade === 'horas' ? 3600000 : 86400000);
+    var base = new Date(t0 + 'T12:00:00');
+    try {
+      await sb.from('reqlab_tarefas').delete().eq('pesquisa_id', model.pesquisa.id).eq('auto', true).eq('tipo', 'coleta');
+      var rows = tempos.map(function (tp) {
+        var mt = String(tp).match(/-?\d+(\.\d+)?/);
+        var n = mt ? Number(mt[0]) : 0;
+        var dt = new Date(base.getTime() + n * msUnid);
+        var diaISO = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+        return { pesquisa_id: model.pesquisa.id, owner: model.pesquisa.owner, criado_por: session.user.id, tipo: 'coleta', titulo: 'Coleta ' + tp, data: diaISO, tempo: tp, auto: true, status: 'pendente' };
+      });
+      var ins = await sb.from('reqlab_tarefas').insert(rows);
+      if (ins.error) throw ins.error;
+      state.tarMsg = ''; await loadModel(); toast('Cronograma de coletas gerado ✓');
+    } catch (e) { state.tarMsg = 'Erro: ' + ((e && e.message) || e); render(); }
+  }
+
+  async function adicionarTarefa() {
+    if (!session) return;
+    var tipo = (document.getElementById('tar-tipo') || {}).value || 'outro';
+    var titulo = ((document.getElementById('tar-titulo') || {}).value || '').trim();
+    var data = (document.getElementById('tar-data') || {}).value || null;
+    if (!titulo) { state.tarMsg = 'Descreva a tarefa.'; render(); return; }
+    try {
+      var row = { tipo: tipo, titulo: titulo, data: data, criado_por: session.user.id, owner: session.user.id, status: 'pendente', auto: false, pesquisa_id: (model ? model.pesquisa.id : null) };
+      var ins = await sb.from('reqlab_tarefas').insert(row);
+      if (ins.error) throw ins.error;
+      state.tarMsg = ''; await loadModel(); toast('Tarefa adicionada ✓');
+    } catch (e) { state.tarMsg = 'Erro: ' + ((e && e.message) || e); render(); }
+  }
+
+  async function toggleTarefa(id) {
+    var t = null, i; for (i = 0; i < tarefasList.length; i++) if (tarefasList[i].id === id) t = tarefasList[i];
+    if (!t) return;
+    if (t.auto) { alert('Esta é uma coleta — ela é marcada como feita automaticamente quando você preenche os dados desse tempo na tabela de Dados.'); return; }
+    var novo = t.status === 'feita' ? 'pendente' : 'feita';
+    try { var up = await sb.from('reqlab_tarefas').update({ status: novo }).eq('id', id); if (up.error) throw up.error; await loadModel(); }
+    catch (e) { alert('Erro: ' + ((e && e.message) || e)); }
+  }
+
+  async function excluirTarefa(id) {
+    if (!window.confirm('Excluir esta tarefa?')) return;
+    try { var r = await sb.from('reqlab_tarefas').delete().eq('id', id); if (r.error) throw r.error; await loadModel(); toast('Tarefa excluída'); }
+    catch (e) { alert('Erro: ' + ((e && e.message) || e)); }
+  }
+
   async function salvarFaixas() {
     if (!model) return;
     try {
@@ -1728,8 +1903,8 @@
       case 'usuarios': return session && ehOrientador() ? usuarios() : emptyTela('Usuários', 'Apenas o orientador pode gerenciar usuários.', false);
       case 'analises': return analises();
       case 'dados': return dados();
-      case 'cronograma': return session ? emptyTela('Cronograma', 'O cronograma de coletas, aulas, entregas e congressos aparecerá aqui. Funcionalidade em desenvolvimento.', false) : cronograma();
-      case 'tarefas': return session ? emptyTela('Tarefas', 'As tarefas e prazos aparecerão aqui. Funcionalidade em desenvolvimento.', false) : tarefas();
+      case 'cronograma': return session ? cronogramaReal() : cronograma();
+      case 'tarefas': return session ? tarefasReal() : tarefas();
       case 'config': return config();
       default: return '';
     }
@@ -1762,8 +1937,16 @@
     if (state.toast) {
       html += '<div style="position:fixed; bottom:20px; right:20px; z-index:60; background:' + (state.toast.ok ? '#177a52' : '#c0392b') + '; color:#fff; font:600 13px \'IBM Plex Sans\',sans-serif; padding:11px 18px; border-radius:9px; box-shadow:0 6px 24px rgba(0,0,0,.18);">' + esc(state.toast.msg) + '</div>';
     }
+    // preserva a rolagem horizontal da tabela de dados entre renderizações
+    var scOld = document.getElementById('dados-scroll');
+    var scLeft = scOld ? scOld.scrollLeft : null;
     document.getElementById('app').innerHTML = html;
-    if (state.editCell) { var ei = document.getElementById('edit-input'); if (ei) { ei.focus(); if (ei.select) ei.select(); } }
+    var scNew = document.getElementById('dados-scroll');
+    if (scNew && scLeft != null) scNew.scrollLeft = scLeft;
+    if (state.editCell) {
+      var ei = document.getElementById('edit-input');
+      if (ei) { ei.focus(); if (ei.select) ei.select(); try { ei.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (_) {} }
+    }
   }
 
   // ----------------------------------------------------------------- events
@@ -1791,6 +1974,10 @@
     if (act === 'addTempo') { adicionarTempo(); return; }
     if (act === 'addGrupo') { adicionarGrupo(); return; }
     if (act === 'addIndiv') { adicionarIndividuo(); return; }
+    if (act === 'gerarColetas') { gerarColetas(); return; }
+    if (act === 'addTarefa') { adicionarTarefa(); return; }
+    if (act === 'toggleTarefa') { toggleTarefa(el.getAttribute('data-id')); return; }
+    if (act === 'delTarefa') { excluirTarefa(el.getAttribute('data-id')); return; }
     if (act === 'loginEntrar') { doLoginEntrar(); return; }
     if (act === 'logout') { doLogout(); return; }
     if (act === 'go') { state.screen = el.getAttribute('data-screen'); state.menuOpen = false; state.editCell = null; state.novaLinhaOpen = false; }
