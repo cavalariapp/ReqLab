@@ -62,8 +62,15 @@
     dataFiltro: 'Todos', tempoFiltro: 'Todos', varFiltro: 'Todos', novaLinhaOpen: false,
     loginOpen: false, loginMsg: '', editCell: null,
     anVar: null, anGrupo: 'Todos',
-    pesquisaId: null, novoExpOpen: false, expForm: null, usrMsg: '', menuOpen: false
+    pesquisaId: null, novoExpOpen: false, expForm: null, usrMsg: '', menuOpen: false, toast: null
   };
+  var toastTimer = null;
+  function toast(msg, ok) {
+    state.toast = { msg: msg, ok: ok !== false };
+    render();
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { state.toast = null; render(); }, 2400);
+  }
 
   // -------------------------------------------------------------- helpers
   function css(o) {
@@ -1166,11 +1173,13 @@
         var vi = await sb.from('reqlab_valores').upsert(valores.slice(b, b + 500), { onConflict: 'coleta_id,variavel_id' });
         if (vi.error) throw vi.error;
       }
-      alert('Importado com sucesso:\n' + anList.length + ' indivíduos · ' + coletaRows.length + ' registros · ' + varCols.length + ' variáveis.');
       state.screen = 'dados'; state.dataFiltro = 'Todos'; state.tempoFiltro = 'Todos';
       await loadModel();
+      toast('Importado: ' + anList.length + ' indivíduos · ' + coletaRows.length + ' registros ✓');
     } catch (e) {
-      alert('Erro ao importar: ' + ((e && e.message) || e));
+      // desfaz o experimento parcial — não deixa dados quebrados pela metade
+      try { if (pid) await sb.from('reqlab_pesquisas').delete().eq('id', pid); } catch (_) {}
+      alert('⚠️ A importação falhou e foi desfeita (nada foi salvo). Verifique a planilha e a conexão e tente de novo.\n\nDetalhe: ' + ((e && e.message) || e));
       console.error('ReqLab importarCSV:', e);
     }
   }
@@ -1211,29 +1220,39 @@
         valores.push(row);
       });
       if (valores.length) { var vi = await sb.from('reqlab_valores').upsert(valores, { onConflict: 'coleta_id,variavel_id' }); if (vi.error) throw vi.error; }
-      state.novaLinhaOpen = false; await loadModel();
-    } catch (e) { alert('Erro ao salvar: ' + ((e && e.message) || e)); }
+      state.novaLinhaOpen = false; await loadModel(); toast('Registro salvo ✓');
+    } catch (e) { alert('⚠️ NÃO foi possível salvar (verifique a internet). Tente de novo.\n\nDetalhe: ' + ((e && e.message) || e)); }
   }
 
   async function salvarCelula(valor) {
-    var ec = state.editCell; state.editCell = null;
-    if (!ec || !model) { render(); return; }
+    var ec = state.editCell;
+    if (!ec || !model) { state.editCell = null; render(); return; }
     var v = null, i; for (i = 0; i < model.variaveis.length; i++) if (model.variaveis[i].id === ec.varId) v = model.variaveis[i];
-    if (!v) { render(); return; }
+    if (!v) { state.editCell = null; render(); return; }
+    // valida ANTES de fechar a edição — assim o valor digitado não se perde
+    if (!isVazio(valor) && v.tipo === 'numerico' && numBR(valor) == null) {
+      alert('“' + valor + '” não é um número válido. Use números (ex.: 12,5). O valor não foi salvo — corrija e tente de novo.');
+      return; // mantém a célula em edição
+    }
+    state.editCell = null;
     try {
       if (isVazio(valor)) {
         var del = await sb.from('reqlab_valores').delete().eq('coleta_id', ec.coletaId).eq('variavel_id', ec.varId);
         if (del.error) throw del.error;
+        await loadModel(); toast('Marcado como não coletado');
       } else {
         var row = { coleta_id: ec.coletaId, variavel_id: ec.varId, valor_num: null, valor_bool: null, valor_texto: null };
-        if (v.tipo === 'numerico') { var n = numBR(valor); if (n == null) { alert('“' + valor + '” não é um número válido.'); render(); return; } row.valor_num = n; }
+        if (v.tipo === 'numerico') row.valor_num = numBR(valor);
         else if (v.tipo === 'booleano') row.valor_bool = asBool(valor);
         else row.valor_texto = String(valor).trim();
         var up = await sb.from('reqlab_valores').upsert(row, { onConflict: 'coleta_id,variavel_id' });
         if (up.error) throw up.error;
+        await loadModel(); toast('Salvo ✓');
       }
-      await loadModel();
-    } catch (e) { alert('Erro ao salvar: ' + ((e && e.message) || e)); render(); }
+    } catch (e) {
+      alert('⚠️ NÃO foi possível salvar (verifique a conexão com a internet). O valor anterior foi mantido no banco. Tente de novo.\n\nDetalhe: ' + ((e && e.message) || e));
+      render();
+    }
   }
 
   // ------------------------------------------------ tela Dados (dados reais)
@@ -1427,13 +1446,18 @@
       kpi('Indivíduos', String(R.nAnimais), R.nGrupos + ' grupos', '#7a8492', 400) +
       kpi('Variáveis', String(R.vars.length), R.descr.length + ' numéricas', '#7a8492', 400) +
       kpi('Grupos', String(R.nGrupos), R.grupos.map(function (g) { return g.nome; }).slice(0, 3).join(', '), '#7a8492', 400);
+    var ehMeu = meu(P);
+    var sub = ehMeu
+      ? 'Olá, ' + esc(d.userName) + '. Resumo do seu experimento.'
+      : 'Experimento de ' + esc(nomeDono(P.owner)) + (ehOrientador() ? ' · você pode editar como orientador.' : ' · somente leitura.');
+    var btnRegistrar = podeEditar() ? '<button data-act="novaLinha" data-screen="dados" style="border:1px solid #dde2e8; background:#fff; color:#2b3340; font:600 13px \'IBM Plex Sans\',sans-serif; padding:10px 16px; border-radius:8px; cursor:pointer;">+ Registrar dado</button>' : '';
     return '<div>' +
-      '<div style="margin-bottom:18px;"><h2 style="margin:0 0 3px; font-size:20px; font-weight:700;">' + esc(P.titulo) + '</h2><div style="font-size:13px; color:#6b7585;">Olá, ' + esc(d.userName) + '. Aqui está o resumo do seu experimento.</div></div>' +
+      '<div style="margin-bottom:18px;"><h2 style="margin:0 0 3px; font-size:20px; font-weight:700;">' + esc(P.titulo) + '</h2><div style="font-size:13px; color:#6b7585;">' + sub + '</div></div>' +
       '<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:14px;">' + kpis + '</div>' +
-      '<div style="display:flex; gap:10px; margin-bottom:14px;">' +
+      '<div style="display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap;">' +
         '<button data-act="go" data-screen="dados" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 13px \'IBM Plex Sans\',sans-serif; padding:10px 16px; border-radius:8px; cursor:pointer;">Abrir dados →</button>' +
         '<button data-act="go" data-screen="analises" style="border:1px solid #dde2e8; background:#fff; color:#2b3340; font:600 13px \'IBM Plex Sans\',sans-serif; padding:10px 16px; border-radius:8px; cursor:pointer;">Ver análises →</button>' +
-        '<button data-act="novaLinha" data-screen="dados" style="border:1px solid #dde2e8; background:#fff; color:#2b3340; font:600 13px \'IBM Plex Sans\',sans-serif; padding:10px 16px; border-radius:8px; cursor:pointer;">+ Registrar dado</button>' +
+        btnRegistrar +
       '</div>' +
       '<div style="display:flex; gap:12px; align-items:flex-start; background:#eaf1fd; border:1px solid #d3e0fa; border-radius:10px; padding:13px 15px;">' + ico.bulb + '<div style="font-size:12.8px; line-height:1.5; color:#1c3a78;"><strong>Leitura automática:</strong><br>' + R.insightHTML + '</div></div>' +
     '</div>';
@@ -1523,7 +1547,7 @@
       });
       if (animais.length) { var aIns = await sb.from('reqlab_animais').insert(animais); if (aIns.error) throw aIns.error; }
       state.novoExpOpen = false; state.expForm = null; state.pesquisaId = pid; state.screen = 'dados'; state.dataFiltro = 'Todos'; state.tempoFiltro = 'Todos';
-      await loadModel();
+      await loadModel(); toast('Experimento criado ✓');
     } catch (e) { state.expMsg = 'Erro: ' + ((e && e.message) || e); render(); }
   }
 
@@ -1692,7 +1716,7 @@
         var up = await sb.from('reqlab_variaveis').update({ faixa_min: mn, faixa_max: mx, cond_format: on && mn != null && mx != null }).eq('id', v.id);
         if (up.error) throw up.error;
       }
-      await loadModel();
+      await loadModel(); toast('Faixas salvas ✓');
     } catch (e) { alert('Erro ao salvar faixas: ' + ((e && e.message) || e)); }
   }
 
@@ -1704,8 +1728,8 @@
       case 'usuarios': return session && ehOrientador() ? usuarios() : emptyTela('Usuários', 'Apenas o orientador pode gerenciar usuários.', false);
       case 'analises': return analises();
       case 'dados': return dados();
-      case 'cronograma': return session ? emptyTela('Cronograma', 'Os prazos e coletas aparecem aqui. Em breve o orientador poderá cadastrar tarefas e você será avisado.', false) : cronograma();
-      case 'tarefas': return session ? emptyTela('Tarefas', 'Suas tarefas e prazos aparecem aqui. Em breve o orientador poderá cadastrá-las e você recebe aviso.', false) : tarefas();
+      case 'cronograma': return session ? emptyTela('Cronograma', 'O cronograma de coletas, aulas, entregas e congressos aparecerá aqui. Funcionalidade em desenvolvimento.', false) : cronograma();
+      case 'tarefas': return session ? emptyTela('Tarefas', 'As tarefas e prazos aparecerão aqui. Funcionalidade em desenvolvimento.', false) : tarefas();
       case 'config': return config();
       default: return '';
     }
@@ -1735,6 +1759,9 @@
         '</main>' +
       '</div>' + loginModal() + novoExpModal();
     }
+    if (state.toast) {
+      html += '<div style="position:fixed; bottom:20px; right:20px; z-index:60; background:' + (state.toast.ok ? '#177a52' : '#c0392b') + '; color:#fff; font:600 13px \'IBM Plex Sans\',sans-serif; padding:11px 18px; border-radius:9px; box-shadow:0 6px 24px rgba(0,0,0,.18);">' + esc(state.toast.msg) + '</div>';
+    }
     document.getElementById('app').innerHTML = html;
     if (state.editCell) { var ei = document.getElementById('edit-input'); if (ei) { ei.focus(); if (ei.select) ei.select(); } }
   }
@@ -1752,8 +1779,8 @@
     if (act === 'criarExp') { criarExperimento(); return; }
     if (act === 'excluirExp') { excluirExperimento(); return; }
     if (act === 'salvarFaixas') { salvarFaixas(); return; }
-    if (act === 'trocarExp') { state.pesquisaId = el.getAttribute('data-id'); loadModel(); return; }
-    if (act === 'abrirExp') { state.pesquisaId = el.getAttribute('data-id'); state.screen = 'dados'; state.dataFiltro = 'Todos'; state.tempoFiltro = 'Todos'; loadModel(); return; }
+    if (act === 'trocarExp') { state.pesquisaId = el.getAttribute('data-id'); state.editCell = null; state.novaLinhaOpen = false; loadModel(); return; }
+    if (act === 'abrirExp') { state.pesquisaId = el.getAttribute('data-id'); state.screen = 'dados'; state.dataFiltro = 'Todos'; state.tempoFiltro = 'Todos'; state.editCell = null; state.novaLinhaOpen = false; state.menuOpen = false; loadModel(); return; }
     if (act === 'criarOrientado') { criarOrientado(); return; }
     if (act === 'editCell') { state.editCell = { coletaId: el.getAttribute('data-coleta'), varId: el.getAttribute('data-var') }; render(); return; }
     if (act === 'delVar') { excluirVariavel(el.getAttribute('data-id')); return; }
@@ -1766,7 +1793,7 @@
     if (act === 'addIndiv') { adicionarIndividuo(); return; }
     if (act === 'loginEntrar') { doLoginEntrar(); return; }
     if (act === 'logout') { doLogout(); return; }
-    if (act === 'go') { state.screen = el.getAttribute('data-screen'); state.menuOpen = false; }
+    if (act === 'go') { state.screen = el.getAttribute('data-screen'); state.menuOpen = false; state.editCell = null; state.novaLinhaOpen = false; }
     else if (act === 'menu') state.menuOpen = !state.menuOpen;
     else if (act === 'fecharMenu') state.menuOpen = false;
     else if (act === 'prof') state.profile = el.getAttribute('data-profile');
@@ -1799,7 +1826,7 @@
       if (f) importarCSV(f);
       t.value = '';
     } else if (t.id === 'exp-select') {
-      state.pesquisaId = t.value; loadModel();
+      state.pesquisaId = t.value; state.editCell = null; state.novaLinhaOpen = false; loadModel();
     } else if (t.id === 'edit-input') {
       salvarCelula(t.value);
     } else if (/^ef-v-tipo-/.test(t.id)) {
