@@ -505,18 +505,35 @@
 
     var gerir = '';
     if (model) {
+      var cs = 'padding:8px 10px; border:1px solid #dde2e8; border-radius:7px; font-size:13px; box-sizing:border-box;';
+      var addBtn = function (act) { return '<button data-act="' + act + '" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 12px \'IBM Plex Sans\',sans-serif; padding:8px 14px; border-radius:7px; cursor:pointer;">Adicionar</button>'; };
       var delTag = function (label, act, attr, val) {
         return '<span style="display:inline-flex; align-items:center; gap:6px; background:#f3f5f8; border:1px solid #e3e7ec; border-radius:20px; padding:4px 6px 4px 11px; font-size:12px;">' + esc(label) + '<button data-act="' + act + '" ' + attr + '="' + esc(val) + '" title="Excluir" style="border:none; background:#e6c7c2; color:#b3372a; width:18px; height:18px; border-radius:50%; cursor:pointer; font:600 11px/1 sans-serif; display:inline-flex; align-items:center; justify-content:center;">✕</button></span>';
       };
-      var manageCard = function (titulo, dica, itensHTML) {
-        return '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:16px 20px; margin-bottom:14px;"><div style="font-size:14px; font-weight:600;">' + titulo + '</div><div style="font-size:12px; color:#6b7585; margin:2px 0 10px;">' + dica + '</div><div style="display:flex; flex-wrap:wrap; gap:8px;">' + (itensHTML || '<span style="font-size:12px; color:#9aa3b0;">nenhum</span>') + '</div></div>';
+      var manageCard = function (titulo, dica, itensHTML, addForm) {
+        return '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:16px 20px; margin-bottom:14px;"><div style="font-size:14px; font-weight:600;">' + titulo + '</div><div style="font-size:12px; color:#6b7585; margin:2px 0 10px;">' + dica + '</div><div style="display:flex; flex-wrap:wrap; gap:8px;">' + (itensHTML || '<span style="font-size:12px; color:#9aa3b0;">nenhum</span>') + '</div><div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; align-items:center;">' + addForm + '</div></div>';
       };
+      var grupoOpts = model.grupos.map(function (g) { return '<option value="' + g.id + '">' + esc(g.nome) + '</option>'; }).join('');
+
       var vTags = model.variaveis.map(function (v) { return delTag(v.nome, 'delVar', 'data-id', v.id); }).join('');
       var tTags = (d.real ? d.real.tempos : []).map(function (t) { return delTag(t, 'delTempo', 'data-t', t); }).join('');
+      var gTags = model.grupos.map(function (g) { return delTag(g.nome, 'delGrupo', 'data-id', g.id); }).join('');
       var iTags = model.animais.map(function (a) { return delTag(a.identificador, 'delIndiv', 'data-id', a.id); }).join('');
-      gerir = manageCard('Variáveis', 'Clique no ✕ para excluir a variável e seus valores.', vTags) +
-        manageCard('Tempos', 'Clique no ✕ para excluir o tempo e os dados coletados nele.', tTags) +
-        manageCard('Indivíduos', 'Clique no ✕ para excluir o indivíduo e seus dados.', iTags);
+
+      var addVarForm = '<input id="av-nome" placeholder="nova variável" style="flex:1; min-width:130px; ' + cs + '">' +
+        '<select id="av-tipo" style="' + cs + '"><option value="numerico">Número</option><option value="booleano">Sim/Não</option><option value="categorico">Texto</option></select>' +
+        '<input id="av-un" placeholder="unidade" style="width:90px; ' + cs + '">' +
+        '<input id="av-min" inputmode="decimal" placeholder="mín" style="width:64px; ' + cs + '">' +
+        '<input id="av-max" inputmode="decimal" placeholder="máx" style="width:64px; ' + cs + '">' + addBtn('addVar');
+      var addTempoForm = '<input id="at-nome" placeholder="novo tempo (ex.: T360)" style="width:180px; ' + cs + '">' + addBtn('addTempo');
+      var addGrupoForm = '<input id="ag-nome" placeholder="novo grupo" style="width:200px; ' + cs + '">' + addBtn('addGrupo');
+      var addIndivForm = '<input id="ai-nome" placeholder="novo indivíduo" style="width:180px; ' + cs + '">' +
+        '<select id="ai-grupo" style="' + cs + '">' + grupoOpts + '</select>' + addBtn('addIndiv');
+
+      gerir = manageCard('Variáveis', 'Adicione ou exclua variáveis (✕). Novas colunas aparecem na tela Dados para preencher.', vTags, addVarForm) +
+        manageCard('Tempos', 'Adicione ou exclua tempos (✕). Use o mesmo padrão (ex.: T0, T90…).', tTags, addTempoForm) +
+        manageCard('Grupos', 'Adicione ou exclua grupos (✕).', gTags, addGrupoForm) +
+        manageCard('Indivíduos', 'Adicione ou exclua indivíduos (✕).', iTags, addIndivForm);
     }
 
     var danger = model ? '<div style="background:#fff; border:1px solid #f1d9d4; border-radius:10px; padding:16px 20px;"><div style="font-size:13px; font-weight:600; color:#b3372a; margin-bottom:4px;">Excluir experimento</div><div style="font-size:12px; color:#7a5410; margin-bottom:10px;">Apaga “' + esc(model.pesquisa.titulo) + '” e todos os seus dados. Não dá para desfazer.</div><button data-act="excluirExp" style="border:1px solid #c0392b; background:#fff; color:#c0392b; font:600 12.5px \'IBM Plex Sans\',sans-serif; padding:8px 14px; border-radius:7px; cursor:pointer;">Excluir este experimento</button></div>' : '';
@@ -783,6 +800,7 @@
     var planTempos = (model.pesquisa.tempos || '').split(/[,;]/).map(function (s) { return s.trim(); }).filter(Boolean);
     var rtempos = planTempos.slice();
     diaList.forEach(function (t) { if (rtempos.indexOf(t) < 0) rtempos.push(t); });
+    rtempos.sort(cmpTempo);
     var curTempo = (state.tempoFiltro && rtempos.indexOf(state.tempoFiltro) > -1) ? state.tempoFiltro : (rtempos[rtempos.length - 1] || null);
     var gById = {}; model.grupos.forEach(function (g) { gById[g.id] = g; });
 
@@ -986,6 +1004,12 @@
   function isVazio(s) { var t = String(s == null ? '' : s).trim(); return t === '' || /^[-–—]+$/.test(t) || /^(na|n\/a|nd|null|\.)$/i.test(t); }
   // número para exibir: até 2 casas, sem zeros à toa, vírgula decimal
   function fmtNum(n) { if (n == null || isNaN(n)) return '—'; var r = Math.round(Number(n) * 100) / 100; return String(r).replace('.', ','); }
+  // ordena tempos pelo número embutido (T90 < T330) e não pela string
+  function cmpTempo(a, b) {
+    var ma = String(a).match(/-?\d+(\.\d+)?/), mb = String(b).match(/-?\d+(\.\d+)?/);
+    if (ma && mb) { var d = parseFloat(ma[0]) - parseFloat(mb[0]); if (d) return d; }
+    return String(a).localeCompare(String(b), undefined, { numeric: true });
+  }
 
   function parseCSV(text) {
     text = text.replace(/^﻿/, '');
@@ -1484,6 +1508,58 @@
     try { var r = await sb.from('reqlab_animais').delete().eq('id', id); if (r.error) throw r.error; await loadModel(); }
     catch (e) { alert('Erro: ' + ((e && e.message) || e)); }
   }
+  async function excluirGrupo(id) {
+    if (!model) return;
+    var g = null, i; for (i = 0; i < model.grupos.length; i++) if (model.grupos[i].id === id) g = model.grupos[i];
+    if (!g || !window.confirm('Excluir o grupo “' + g.nome + '”? Os indivíduos dele ficam sem grupo.')) return;
+    try { var r = await sb.from('reqlab_grupos').delete().eq('id', id); if (r.error) throw r.error; await loadModel(); }
+    catch (e) { alert('Erro: ' + ((e && e.message) || e)); }
+  }
+
+  function campo(id) { return ((document.getElementById(id) || {}).value || '').trim(); }
+
+  async function adicionarVariavel() {
+    if (!model) return;
+    var nome = campo('av-nome'); if (!nome) { alert('Digite o nome da variável.'); return; }
+    var tipo = campo('av-tipo') || 'numerico';
+    var un = campo('av-un') || null;
+    var mn = numBR(campo('av-min')), mx = numBR(campo('av-max'));
+    var temFaixa = tipo === 'numerico' && mn != null && mx != null;
+    var ordem = model.variaveis.reduce(function (m, v) { return Math.max(m, v.ordem || 0); }, -1) + 1;
+    try {
+      var r = await sb.from('reqlab_variaveis').insert({ pesquisa_id: model.pesquisa.id, chave: slugify(nome) + '_' + Date.now().toString(36), nome: nome, tipo: tipo, unidade: un, faixa_min: temFaixa ? mn : null, faixa_max: temFaixa ? mx : null, cond_format: temFaixa, ordem: ordem });
+      if (r.error) throw r.error; await loadModel();
+    } catch (e) { alert('Erro: ' + ((e && e.message) || e)); }
+  }
+  async function adicionarTempo() {
+    if (!model) return;
+    var t = campo('at-nome'); if (!t) { alert('Digite o nome do tempo.'); return; }
+    var plan = (model.pesquisa.tempos || '').split(/[,;]/).map(function (s) { return s.trim(); }).filter(Boolean);
+    if (plan.indexOf(t) < 0) plan.push(t);
+    plan.sort(cmpTempo);
+    try {
+      var r = await sb.from('reqlab_pesquisas').update({ tempos: plan.join(', ') }).eq('id', model.pesquisa.id);
+      if (r.error) throw r.error; await loadModel();
+    } catch (e) { alert('Erro ao adicionar tempo (rode sql/003_experimentos.sql no Supabase se ainda não rodou): ' + ((e && e.message) || e)); }
+  }
+  async function adicionarGrupo() {
+    if (!model) return;
+    var nome = campo('ag-nome'); if (!nome) { alert('Digite o nome do grupo.'); return; }
+    var cores = ['#94a3b8', '#2f63d6', '#1f9d6b', '#d99a18', '#9b59b6', '#e67e22', '#16a085', '#c0392b'];
+    try {
+      var r = await sb.from('reqlab_grupos').insert({ pesquisa_id: model.pesquisa.id, nome: nome, cor: cores[model.grupos.length % cores.length], ordem: model.grupos.length });
+      if (r.error) throw r.error; await loadModel();
+    } catch (e) { alert('Erro: ' + ((e && e.message) || e)); }
+  }
+  async function adicionarIndividuo() {
+    if (!model) return;
+    var nome = campo('ai-nome'); if (!nome) { alert('Digite o nome do indivíduo.'); return; }
+    var gid = campo('ai-grupo') || null;
+    try {
+      var r = await sb.from('reqlab_animais').insert({ pesquisa_id: model.pesquisa.id, grupo_id: gid, identificador: nome, ordem: model.animais.length });
+      if (r.error) throw r.error; await loadModel();
+    } catch (e) { alert('Erro: ' + ((e && e.message) || e)); }
+  }
 
   async function salvarFaixas() {
     if (!model) return;
@@ -1544,6 +1620,11 @@
     if (act === 'delVar') { excluirVariavel(el.getAttribute('data-id')); return; }
     if (act === 'delTempo') { excluirTempo(el.getAttribute('data-t')); return; }
     if (act === 'delIndiv') { excluirIndividuo(el.getAttribute('data-id')); return; }
+    if (act === 'delGrupo') { excluirGrupo(el.getAttribute('data-id')); return; }
+    if (act === 'addVar') { adicionarVariavel(); return; }
+    if (act === 'addTempo') { adicionarTempo(); return; }
+    if (act === 'addGrupo') { adicionarGrupo(); return; }
+    if (act === 'addIndiv') { adicionarIndividuo(); return; }
     if (act === 'loginEntrar') { doLoginEntrar(); return; }
     if (act === 'logout') { doLogout(); return; }
     if (act === 'go') state.screen = el.getAttribute('data-screen');
