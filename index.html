@@ -1930,11 +1930,31 @@
   function registrarSW() {
     if ('serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js'); } catch (_) {} }
   }
+  // chave pública VAPID (identifica o servidor de push deste app; pode ser pública)
+  var VAPID_PUBLIC = 'BFrlCCrEBoU2yLYOQLAj3lZCONRktbdqQVX600sQSZjZKfsqx-XZqDmEtmd4-Mab8_CkdguwqcMX1uCDYZDhjNw';
+  function urlBase64ToUint8Array(s) {
+    var pad = '='.repeat((4 - s.length % 4) % 4);
+    var b = (s + pad).replace(/-/g, '+').replace(/_/g, '/');
+    var raw = atob(b), arr = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    return arr;
+  }
+  // inscreve este aparelho para receber push de fundo (precisa da função + cron no Supabase)
+  async function inscreverPush() {
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !notifAtivo() || !session || !sb) return;
+      var reg = await navigator.serviceWorker.ready;
+      var sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC) });
+      var j = sub.toJSON();
+      await sb.from('reqlab_push_subs').upsert({ user_id: session.user.id, endpoint: j.endpoint, subscription: j }, { onConflict: 'endpoint' });
+    } catch (e) { console.error('ReqLab push:', (e && e.message) || e); }
+  }
   async function pedirNotificacoes() {
     if (!notifSuportado()) { alert('Seu navegador não suporta notificações. No iPhone, primeiro adicione o app à tela inicial (compartilhar → Adicionar à Tela de Início).'); return; }
     try {
       var p = await Notification.requestPermission();
-      if (p === 'granted') { toast('Lembretes ativados ✓'); checarLembretes(); render(); }
+      if (p === 'granted') { toast('Lembretes ativados ✓'); checarLembretes(); inscreverPush(); render(); }
       else { alert('Permissão negada. Você pode reativar nas configurações do navegador (site → Notificações).'); render(); }
     } catch (e) { alert('Erro: ' + ((e && e.message) || e)); }
   }
@@ -2141,6 +2161,7 @@
     await carregarPerfil();
     render();
     loadModel();
+    if (session && notifAtivo()) inscreverPush();
   })();
 })();
 </script>
