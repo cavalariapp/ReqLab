@@ -2,8 +2,14 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ReqLab — Gestão de Pesquisa Equina</title>
+<link rel="icon" type="image/png" href="assets/icone-app.png">
+<link rel="apple-touch-icon" href="assets/icone-app.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#14506e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ReqLab">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -13,6 +19,13 @@
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: #d6dbe2; border-radius: 6px; border: 2px solid #f5f7f9; }
   input, select { font-family: 'IBM Plex Sans', sans-serif; }
+  /* Responsivo (celular): sobrepõe os grids fixos sem mexer no JS */
+  @media (max-width: 760px) {
+    [style*="repeat(4,1fr)"] { grid-template-columns: repeat(2,1fr) !important; }
+    [style*="repeat(3,1fr)"] { grid-template-columns: 1fr !important; }
+    [style*="1.55fr 1fr"], [style*="1.4fr 1fr"] { grid-template-columns: 1fr !important; }
+    [style*="padding:24px 26px"] { padding: 16px 14px !important; }
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -41,6 +54,7 @@
   var experiments = [];   // todos os experimentos visíveis ao usuário
   var perfil = null;      // { user_id, nome, papel } do usuário logado
   var perfisAll = [];     // perfis de todos (para mostrar nomes dos donos)
+  var isMobile = window.matchMedia('(max-width: 760px)').matches;  // layout de celular
 
   // ----------------------------------------------------------------- state
   var state = {
@@ -48,7 +62,7 @@
     dataFiltro: 'Todos', tempoFiltro: 'Todos', varFiltro: 'Todos', novaLinhaOpen: false,
     loginOpen: false, loginMsg: '', editCell: null,
     anVar: null, anGrupo: 'Todos',
-    pesquisaId: null, novoExpOpen: false, expForm: null, usrMsg: ''
+    pesquisaId: null, novoExpOpen: false, expForm: null, usrMsg: '', menuOpen: false
   };
 
   // -------------------------------------------------------------- helpers
@@ -142,14 +156,18 @@
     '<svg width="34" height="34" viewBox="0 0 34 34" xmlns="http://www.w3.org/2000/svg"><rect width="34" height="34" rx="8" fill="#14506e"/><polyline points="7,23 13,17 19,20 27,10" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7" cy="23" r="1.9" fill="#7fc4ff"/><circle cx="27" cy="10" r="1.9" fill="#7fc4ff"/></svg>' +
     '<div style="line-height:1;"><div style="font:700 19px \'IBM Plex Sans\',sans-serif; color:#14506e; letter-spacing:-0.01em;">ReqLab</div><div style="font:600 8px \'IBM Plex Mono\',monospace; color:#8a93a0; letter-spacing:0.1em; margin-top:3px;">REPRODUÇÃO EQUINA</div></div></div>';
 
+  // logo do laboratório (assets/logo-laboratorio.png); se não existir, cai no logo padrão
+  function logoLab(maxH) {
+    return '<img src="assets/logo-laboratorio.png" alt="Laboratório" style="max-height:' + (maxH || 40) + 'px; max-width:210px; display:block;" onerror="this.onerror=null;this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><div style="display:none;">' + logo + '</div>';
+  }
+
   // -------------------------------------------------------------- sidebar
   function sidebar() {
     function item(k, icon, label, extra) {
       return '<div style="' + navStyle(k) + '" data-act="go" data-screen="' + k + '">' + icon + label + (extra || '') + '</div>';
     }
-    var badge = '<span style="margin-left:auto; font:600 10px/1 \'IBM Plex Mono\',monospace; background:#fdecec; color:#cc4433; padding:2px 6px; border-radius:20px;">3</span>';
-    return '<aside style="width:230px; flex:none; background:#fbfcfd; border-right:1px solid #e9ecf0; padding:18px 14px; display:flex; flex-direction:column; position:sticky; top:0; height:100vh;">' +
-      '<div style="padding:4px 6px 18px;">' + logo + '</div>' +
+    var badge = '';
+    var inner = '<div style="padding:4px 6px 18px;">' + logoLab(40) + '</div>' +
       '<div style="font:600 10px/1 \'IBM Plex Mono\',monospace; color:#aab2bd; letter-spacing:0.12em; padding:6px 8px 8px;">MENU</div>' +
       '<nav style="display:flex; flex-direction:column; gap:2px;">' +
         item('visao', ico.grid, 'Visão geral') +
@@ -167,8 +185,13 @@
       '<div style="margin-top:auto; padding-top:16px; border-top:1px solid #eceff3; display:flex; align-items:center; gap:10px;">' +
         '<div style="width:31px; height:31px; flex:none; border-radius:50%; background:#dde4ee; color:#3a4658; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:12px;">' + d.userInit + '</div>' +
         '<div style="line-height:1.2; min-width:0;"><div style="font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + d.userName + '</div><div style="font:500 10px/1 \'IBM Plex Mono\',monospace; color:#8a93a0;">' + d.userRole + '</div></div>' +
-      '</div>' +
-    '</aside>';
+      '</div>';
+    if (isMobile) {
+      if (!state.menuOpen) return '';
+      return '<div data-act="fecharMenu" style="position:fixed; inset:0; background:rgba(20,30,45,.4); z-index:40;"></div>' +
+        '<aside style="position:fixed; left:0; top:0; bottom:0; width:250px; max-width:82%; background:#fbfcfd; border-right:1px solid #e9ecf0; padding:18px 14px; display:flex; flex-direction:column; z-index:41; overflow:auto;">' + inner + '</aside>';
+    }
+    return '<aside style="width:230px; flex:none; background:#fbfcfd; border-right:1px solid #e9ecf0; padding:18px 14px; display:flex; flex-direction:column; position:sticky; top:0; height:100vh;">' + inner + '</aside>';
   }
 
   // --------------------------------------------------------------- topbar
@@ -176,7 +199,7 @@
     var auth = '';
     if (sb) {
       auth = session
-        ? '<div style="display:flex; align-items:center; gap:8px;"><span style="font:500 11px \'IBM Plex Mono\',monospace; color:#566071; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + (session.user && session.user.email || '') + '</span><button data-act="logout" style="border:1px solid #dde2e8; background:#fff; color:#566071; font:600 11.5px \'IBM Plex Sans\',sans-serif; padding:6px 11px; border-radius:7px; cursor:pointer;">Sair</button></div>'
+        ? '<div style="display:flex; align-items:center; gap:8px;">' + (isMobile ? '' : '<span style="font:500 11px \'IBM Plex Mono\',monospace; color:#566071; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + (session.user && session.user.email || '') + '</span>') + '<button data-act="logout" style="border:1px solid #dde2e8; background:#fff; color:#566071; font:600 11.5px \'IBM Plex Sans\',sans-serif; padding:6px 11px; border-radius:7px; cursor:pointer;">Sair</button></div>'
         : '<button data-act="login" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 11.5px \'IBM Plex Sans\',sans-serif; padding:6px 13px; border-radius:7px; cursor:pointer;">Entrar</button>';
     }
     var titleArea;
@@ -184,19 +207,20 @@
       var mine = meusExperimentos();
       if (mine.length) {
         var opts = mine.map(function (p) { return '<option value="' + p.id + '"' + ((model && model.pesquisa.id === p.id) ? ' selected' : '') + '>' + esc(p.titulo) + (ehOrientador() && !meu(p) ? ' · ' + esc(nomeDono(p.owner)) : '') + '</option>'; }).join('');
-        titleArea = '<select id="exp-select" style="border:1px solid #dde2e8; border-radius:7px; padding:7px 11px; font-size:13px; font-weight:500; color:#2b3340; max-width:300px;">' + opts + '</select>';
+        titleArea = '<select id="exp-select" style="border:1px solid #dde2e8; border-radius:7px; padding:7px 11px; font-size:13px; font-weight:500; color:#2b3340; max-width:' + (isMobile ? '150px' : '300px') + '; min-width:0;">' + opts + '</select>';
       } else {
-        titleArea = '<span style="font-size:13px; color:#8a93a0; padding:6px 4px;">Nenhum experimento ainda</span>';
+        titleArea = '<span style="font-size:13px; color:#8a93a0; padding:6px 4px;">Nenhum experimento</span>';
       }
-      titleArea += '<button data-act="novoExp" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 12px \'IBM Plex Sans\',sans-serif; padding:7px 12px; border-radius:7px; cursor:pointer;">+ Novo experimento</button>';
+      titleArea += '<button data-act="novoExp" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 12px \'IBM Plex Sans\',sans-serif; padding:7px 12px; border-radius:7px; cursor:pointer; flex:none;">' + (isMobile ? '+ Novo' : '+ Novo experimento') + '</button>';
     } else {
       titleArea = '<div style="font-size:14px; font-weight:700; color:#1b1f27;">ReqLab</div>';
     }
     var papelSelo = session ? '<span style="font:600 10.5px \'IBM Plex Mono\',monospace; color:' + (ehOrientador() ? '#1d4ed8' : '#566071') + '; background:' + (ehOrientador() ? '#eaf1fd' : '#f0f2f5') + '; padding:5px 10px; border-radius:20px;">' + (ehOrientador() ? 'ORIENTADOR' : 'ORIENTADO') + '</span>' : '';
-    return '<div style="height:56px; flex:none; border-bottom:1px solid #e9ecf0; background:#fff; display:flex; align-items:center; padding:0 24px; gap:10px; position:sticky; top:0; z-index:5;">' +
-      titleArea +
-      '<div style="margin-left:auto; display:flex; align-items:center; gap:14px;">' +
-        '<div style="display:flex; align-items:center; gap:8px; font:500 11px/1 \'IBM Plex Mono\',monospace; color:#1f9d6b;"><span style="width:7px; height:7px; border-radius:50%; background:#1f9d6b; box-shadow:0 0 0 3px #1f9d6b22;"></span>TEMPO REAL</div>' +
+    var hamburguer = isMobile ? '<button data-act="menu" aria-label="Menu" style="border:1px solid #dde2e8; background:#fff; border-radius:7px; padding:6px 9px; cursor:pointer; flex:none; line-height:0;"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="#2b3340" stroke-width="1.7" stroke-linecap="round"><line x1="2.5" y1="4.5" x2="13.5" y2="4.5"/><line x1="2.5" y1="8" x2="13.5" y2="8"/><line x1="2.5" y1="11.5" x2="13.5" y2="11.5"/></svg></button>' : '';
+    return '<div style="height:56px; flex:none; border-bottom:1px solid #e9ecf0; background:#fff; display:flex; align-items:center; padding:0 ' + (isMobile ? '14px' : '24px') + '; gap:10px; position:sticky; top:0; z-index:5;">' +
+      hamburguer + titleArea +
+      '<div style="margin-left:auto; display:flex; align-items:center; gap:' + (isMobile ? '8px' : '14px') + '; flex:none;">' +
+        (isMobile ? '' : '<div style="display:flex; align-items:center; gap:8px; font:500 11px/1 \'IBM Plex Mono\',monospace; color:#1f9d6b;"><span style="width:7px; height:7px; border-radius:50%; background:#1f9d6b; box-shadow:0 0 0 3px #1f9d6b22;"></span>TEMPO REAL</div>') +
         papelSelo +
         auth +
       '</div>' +
@@ -930,7 +954,7 @@
     if (!sb) return;
     try {
       var lq = sb.from('reqlab_pesquisas').select('*').order('created_at', { ascending: false });
-      if (!(session && session.user)) lq = lq.eq('is_demo', true);
+      lq = (session && session.user) ? lq.eq('is_demo', false) : lq.eq('is_demo', true);
       var pq = await lq;
       if (pq.error) throw pq.error;
       experiments = pq.data || [];
@@ -1690,7 +1714,7 @@
     var aviso = !sb ? '<div style="font-size:12px; color:#9a6a12; margin-top:14px;">Backend não configurado.</div>' : '';
     return '<div style="min-height:100vh; display:flex; align-items:center; justify-content:center; font-family:\'IBM Plex Sans\',sans-serif; color:#1b1f27; background:#f5f7f9; padding:24px;">' +
       '<div style="text-align:center; max-width:380px; width:100%;">' +
-        '<div style="display:flex; justify-content:center; margin-bottom:8px;">' + logo + '</div>' +
+        '<div style="display:flex; justify-content:center; margin-bottom:8px;">' + logoLab(64) + '</div>' +
         '<p style="font-size:14px; color:#6b7585; line-height:1.5; margin:14px 0 22px;">Plataforma de gestão de pesquisa equina — delineamento, coleta de dados, análises e cronograma.</p>' +
         '<button data-act="login" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 14px \'IBM Plex Sans\',sans-serif; padding:12px 26px; border-radius:9px; cursor:pointer;">Entrar</button>' +
         '<div style="font-size:12px; color:#9aa3b0; margin-top:14px;">Use o e-mail e a senha que o orientador criou para você.</div>' + aviso +
@@ -1742,7 +1766,9 @@
     if (act === 'addIndiv') { adicionarIndividuo(); return; }
     if (act === 'loginEntrar') { doLoginEntrar(); return; }
     if (act === 'logout') { doLogout(); return; }
-    if (act === 'go') state.screen = el.getAttribute('data-screen');
+    if (act === 'go') { state.screen = el.getAttribute('data-screen'); state.menuOpen = false; }
+    else if (act === 'menu') state.menuOpen = !state.menuOpen;
+    else if (act === 'fecharMenu') state.menuOpen = false;
     else if (act === 'prof') state.profile = el.getAttribute('data-profile');
     else if (act === 'step') state.step = parseInt(el.getAttribute('data-step'), 10);
     else if (act === 'wizNext') state.step = Math.min(4, state.step + 1);
@@ -1796,6 +1822,12 @@
     if (!state.loginOpen) return;
     if (e.key === 'Enter') { e.preventDefault(); doLoginEntrar(); }
     else if (e.key === 'Escape') { state.loginOpen = false; state.loginMsg = ''; render(); }
+  });
+
+  // re-renderiza ao cruzar o limite celular/computador
+  window.addEventListener('resize', function () {
+    var m = window.matchMedia('(max-width: 760px)').matches;
+    if (m !== isMobile) { isMobile = m; if (!m) state.menuOpen = false; render(); }
   });
 
   // ------------------------------------------------------------------- boot
