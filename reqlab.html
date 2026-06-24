@@ -1617,38 +1617,41 @@
   // -------------------------------------------------- tela Usuários (orientador)
   function usuarios() {
     var cs = 'width:100%; padding:9px 11px; border:1px solid #dde2e8; border-radius:7px; font-size:13px; box-sizing:border-box; margin-bottom:10px;';
-    var orientados = perfisAll.filter(function (p) { return p.papel === 'orientado'; });
-    var lista = orientados.map(function (p) {
-      return '<div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid #f0f3f6;"><div style="width:30px; height:30px; border-radius:50%; background:#dde4ee; color:#3a4658; display:flex; align-items:center; justify-content:center; font:600 12px \'IBM Plex Sans\',sans-serif;">' + esc((p.nome || '—').slice(0, 2).toUpperCase()) + '</div><div style="font-size:13px; font-weight:500;">' + esc(p.nome || '—') + '</div></div>';
-    }).join('') || '<div style="font-size:12.5px; color:#9aa3b0; padding:8px 0;">Nenhum orientado cadastrado ainda.</div>';
+    var ordenados = perfisAll.slice().sort(function (a, b) { return (a.papel === 'orientador' ? 0 : 1) - (b.papel === 'orientador' ? 0 : 1); });
+    var lista = ordenados.map(function (p) {
+      var orient = p.papel === 'orientador';
+      return '<div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid #f0f3f6;"><div style="width:30px; height:30px; border-radius:50%; background:#dde4ee; color:#3a4658; display:flex; align-items:center; justify-content:center; font:600 12px \'IBM Plex Sans\',sans-serif;">' + esc((p.nome || '—').slice(0, 2).toUpperCase()) + '</div><div style="font-size:13px; font-weight:500; flex:1;">' + esc(p.nome || '—') + '</div><span style="font:600 10px \'IBM Plex Mono\',monospace; color:' + (orient ? '#1d4ed8' : '#566071') + '; background:' + (orient ? '#eaf1fd' : '#f0f2f5') + '; padding:3px 8px; border-radius:20px;">' + (orient ? 'ORIENTADOR' : 'ORIENTADO') + '</span></div>';
+    }).join('') || '<div style="font-size:12.5px; color:#9aa3b0; padding:8px 0;">Nenhum usuário cadastrado ainda.</div>';
     return '<div style="max-width:620px; margin:0 auto;">' +
-      '<div style="margin-bottom:18px;"><h2 style="margin:0 0 3px; font-size:20px; font-weight:700;">Usuários</h2><div style="font-size:13px; color:#6b7585;">Cadastre os orientados. Eles entram com o e-mail e a senha que você definir.</div></div>' +
+      '<div style="margin-bottom:18px;"><h2 style="margin:0 0 3px; font-size:20px; font-weight:700;">Usuários</h2><div style="font-size:13px; color:#6b7585;">Cadastre orientados (e, se precisar, outro orientador). Eles entram com o e-mail e a senha que você definir.</div></div>' +
       '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:18px 20px; margin-bottom:14px;">' +
-        '<div style="font-size:14px; font-weight:600; margin-bottom:12px;">Novo orientado</div>' +
+        '<div style="font-size:14px; font-weight:600; margin-bottom:12px;">Novo usuário</div>' +
         '<input id="or-nome" placeholder="Nome" style="' + cs + '">' +
         '<input id="or-email" type="email" placeholder="e-mail" style="' + cs + '">' +
         '<input id="or-senha" type="text" placeholder="senha (mín. 6 caracteres)" style="' + cs + '">' +
+        '<select id="or-papel" style="' + cs + '"><option value="orientado">Orientado (aluno)</option><option value="orientador">Orientador (professor)</option></select>' +
         (state.usrMsg ? '<div style="font-size:12.5px; color:' + (/criado/i.test(state.usrMsg) ? '#177a52' : '#c0392b') + '; margin-bottom:10px;">' + esc(state.usrMsg) + '</div>' : '') +
-        '<div style="display:flex; justify-content:flex-end;"><button data-act="criarOrientado" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 13px \'IBM Plex Sans\',sans-serif; padding:9px 18px; border-radius:8px; cursor:pointer;">Criar orientado</button></div>' +
+        '<div style="display:flex; justify-content:flex-end;"><button data-act="criarOrientado" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 13px \'IBM Plex Sans\',sans-serif; padding:9px 18px; border-radius:8px; cursor:pointer;">Criar usuário</button></div>' +
       '</div>' +
-      '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:16px 20px;"><div style="font-size:14px; font-weight:600; margin-bottom:4px;">Orientados (' + orientados.length + ')</div>' + lista + '</div>' +
+      '<div style="background:#fff; border:1px solid #e9ecf0; border-radius:10px; padding:16px 20px;"><div style="font-size:14px; font-weight:600; margin-bottom:4px;">Usuários (' + perfisAll.length + ')</div>' + lista + '</div>' +
     '</div>';
   }
 
   async function criarOrientado() {
     var nome = campo('or-nome'), email = campo('or-email'), senha = (document.getElementById('or-senha') || {}).value || '';
+    var papel = campo('or-papel') === 'orientador' ? 'orientador' : 'orientado';
     if (!email || !senha) { state.usrMsg = 'Informe e-mail e senha.'; render(); return; }
     if (senha.length < 6) { state.usrMsg = 'A senha precisa ter ao menos 6 caracteres.'; render(); return; }
     state.usrMsg = 'Criando…'; render();
     try {
-      var r = await sb.functions.invoke('criar-orientado', { body: { nome: nome, email: email, password: senha } });
+      var r = await sb.functions.invoke('criar-orientado', { body: { nome: nome, email: email, password: senha, papel: papel } });
       if (r.error) {
         var emsg = r.error.message || 'Falha na função.';
         try { var body = await r.error.context.json(); if (body && body.error) emsg = body.error; } catch (_) {}
         state.usrMsg = 'Erro: ' + emsg; render(); return;
       }
       if (r.data && r.data.error) { state.usrMsg = 'Erro: ' + r.data.error; render(); return; }
-      state.usrMsg = 'Orientado criado: ' + email;
+      state.usrMsg = (papel === 'orientador' ? 'Orientador' : 'Orientado') + ' criado: ' + email;
       await carregarPerfil(); render();
     } catch (e) { state.usrMsg = 'Erro: ' + ((e && e.message) || e); render(); }
   }
@@ -1683,15 +1686,31 @@
       default: return '';
     }
   }
+  function loginLanding() {
+    var aviso = !sb ? '<div style="font-size:12px; color:#9a6a12; margin-top:14px;">Backend não configurado.</div>' : '';
+    return '<div style="min-height:100vh; display:flex; align-items:center; justify-content:center; font-family:\'IBM Plex Sans\',sans-serif; color:#1b1f27; background:#f5f7f9; padding:24px;">' +
+      '<div style="text-align:center; max-width:380px; width:100%;">' +
+        '<div style="display:flex; justify-content:center; margin-bottom:8px;">' + logo + '</div>' +
+        '<p style="font-size:14px; color:#6b7585; line-height:1.5; margin:14px 0 22px;">Plataforma de gestão de pesquisa equina — delineamento, coleta de dados, análises e cronograma.</p>' +
+        '<button data-act="login" style="border:1px solid #2f63d6; background:#2f63d6; color:#fff; font:600 14px \'IBM Plex Sans\',sans-serif; padding:12px 26px; border-radius:9px; cursor:pointer;">Entrar</button>' +
+        '<div style="font-size:12px; color:#9aa3b0; margin-top:14px;">Use o e-mail e a senha que o orientador criou para você.</div>' + aviso +
+      '</div>' +
+    '</div>';
+  }
   function render() {
     buildData();
-    var html = '<div style="display:flex; min-height:100vh; font-family:\'IBM Plex Sans\',sans-serif; color:#1b1f27; background:#f5f7f9;">' +
-      sidebar() +
-      '<main style="flex:1; min-width:0; display:flex; flex-direction:column;">' +
-        topbar() +
-        '<div style="padding:24px 26px; flex:1;">' + screenBody() + '</div>' +
-      '</main>' +
-    '</div>' + loginModal() + novoExpModal();
+    var html;
+    if (!session) {
+      html = loginLanding() + loginModal();
+    } else {
+      html = '<div style="display:flex; min-height:100vh; font-family:\'IBM Plex Sans\',sans-serif; color:#1b1f27; background:#f5f7f9;">' +
+        sidebar() +
+        '<main style="flex:1; min-width:0; display:flex; flex-direction:column;">' +
+          topbar() +
+          '<div style="padding:24px 26px; flex:1;">' + screenBody() + '</div>' +
+        '</main>' +
+      '</div>' + loginModal() + novoExpModal();
+    }
     document.getElementById('app').innerHTML = html;
     if (state.editCell) { var ei = document.getElementById('edit-input'); if (ei) { ei.focus(); if (ei.select) ei.select(); } }
   }

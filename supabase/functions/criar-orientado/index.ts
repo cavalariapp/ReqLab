@@ -29,16 +29,17 @@ Deno.serve(async (req) => {
     const { data: perfil } = await admin.from("reqlab_perfis").select("papel").eq("user_id", user.id).single();
     if (!perfil || perfil.papel !== "orientador") return json(403, { error: "Apenas o orientador pode criar usuários." });
 
-    const { email, password, nome } = await req.json();
+    const { email, password, nome, papel } = await req.json();
     if (!email || !password) return json(400, { error: "Informe e-mail e senha." });
     if (String(password).length < 6) return json(400, { error: "A senha precisa ter ao menos 6 caracteres." });
+    const role = papel === "orientador" ? "orientador" : "orientado";
 
     const { data: created, error } = await admin.auth.admin.createUser({
       email, password, email_confirm: true, user_metadata: { name: nome || email },
     });
     if (error) return json(400, { error: error.message });
 
-    await admin.from("reqlab_perfis").upsert({ user_id: created.user.id, nome: nome || email, papel: "orientado" });
+    await admin.from("reqlab_perfis").upsert({ user_id: created.user.id, nome: nome || email, papel: role });
     return json(200, { ok: true, id: created.user.id });
   } catch (e) {
     return json(500, { error: String((e as Error)?.message || e) });
